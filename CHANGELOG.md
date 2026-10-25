@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.13 (2026-10-25)
+
+- Dashboard UI is Czech (`lang=cs`, `cs-CZ` formatting) with responsive mobile-first layout, compact remaining quota gauges (text + progressbar, not color alone), pauseable auto-refresh, and merged Provider-quotas sections/columns.
+- Plugin cell bars may carry `remaining` / `reset_label` / `state`; unknown remaining stays null (never coerced to 0 % or 100 %).
+
 ## 0.3.12 (2026-10-22)
 
 - The login hint for a Claude agent quotes the session name, so `tmux attach -t "T - Claude"` works when pasted. A test checks every attach hint.
