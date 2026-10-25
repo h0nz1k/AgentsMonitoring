@@ -10,6 +10,7 @@ Binds 127.0.0.1 by default; optional HTTP Basic auth (config.dashboard.auth). UI
 from __future__ import annotations
 
 import base64
+import ipaddress
 import hashlib
 import hmac
 import json
@@ -848,12 +849,22 @@ def _loopback(host: str) -> bool:
 
 
 def require_auth_or_die(host: str, cfg: dict) -> None:
-    """Fail closed: a dashboard reachable from anything but loopback must have HTTP auth
-    configured (audit 2026-09-08). Without it anyone on that network could stop or restart
-    agents. `agentsmon setup` sets dashboard.auth; loopback-only installs stay optional."""
+    """Require login off-loopback unless an administrator opts into a private LAN bind.
+
+    The LAN exception requires a specific RFC1918 IPv4 address and an actual boolean;
+    administrators must restrict incoming clients with the host firewall.
+    """
     auth = cfg.get("dashboard", {}).get("auth") or {}
     if _loopback(host) or (auth.get("user") and auth.get("pwhash")):
         return
+    if cfg.get("dashboard", {}).get("allow_unauthenticated_lan") is True:
+        try:
+            address = ipaddress.IPv4Address(host)
+            if any(address in ipaddress.IPv4Network(network) for network in
+                   ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
+                return
+        except ipaddress.AddressValueError:
+            pass
     raise SystemExit(
         f"refusing to listen on {host} without dashboard.auth (user + pwhash) in the config — "
         "the page can stop and restart agents. Bind 127.0.0.1 or set the password via `agentsmon setup`."
