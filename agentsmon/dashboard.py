@@ -95,28 +95,38 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .sid-btn{display:inline-flex;align-items:center;justify-content:center;min-width:var(--touch);min-height:36px;padding:6px;border-radius:6px;color:#64748b}
 .sid-btn:hover,.sid-btn:focus-visible{color:#0284c7;background:#f1f5f9;outline:2px solid #38bdf8;outline-offset:1px}
 .sid-btn.sid-muted{color:#94a3b8;cursor:default}
-.quota-stack{display:flex;flex-direction:column;gap:2px;min-width:0;max-width:100%}
+.quota-stack{display:flex;flex-direction:column;gap:4px;min-width:0;max-width:100%}
 .quota-row{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:1.25}
-.quota-name{flex:0 1 4.5rem;min-width:0;overflow:hidden;text-overflow:ellipsis;color:#475569;font-weight:500}
-.quota-track{flex:1 1 4rem;min-width:2.5rem;max-width:7rem;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}
+.quota-gauge{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;padding:2px 4px;margin:-2px -4px;border-radius:6px;border:0;background:transparent;cursor:help;font:inherit;color:inherit;text-align:left}
+.quota-gauge:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.quota-gauge[aria-expanded="true"]{background:#f1f5f9}
+.quota-name{flex:0 0 auto;min-width:1.75rem;color:#475569;font-weight:600}
+.quota-track{flex:1 1 3.5rem;min-width:2.5rem;max-width:5.5rem;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}
 .quota-fill{display:block;height:100%;border-radius:999px}
 .quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
 .quota-reset{flex:0 0 auto;color:#64748b;font-variant-numeric:tabular-nums}
 .quota-state{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
 .quota-state.ok{color:#059669}.quota-state.stale{color:#d97706}.quota-state.unavail{color:#94a3b8}
+.quota-tip{display:none;position:absolute;z-index:40;max-width:min(22rem,calc(100vw - 1.5rem));padding:8px 10px;border-radius:8px;background:#0f172a;color:#f8fafc;font-size:12px;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.25);white-space:normal;word-break:break-word}
+.quota-tip.open{display:block}
+.quota-wrap{position:relative;display:inline-block;max-width:100%}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .agent-act{min-width:var(--touch);min-height:36px;justify-content:center}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:1rem}
 .toolbar button{min-height:var(--touch);min-width:var(--touch);padding:0 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:13px}
 .toolbar button:hover,.toolbar button:focus-visible{border-color:#94a3b8;outline:2px solid #38bdf8;outline-offset:1px}
 .toolbar button[aria-pressed="true"]{background:#f1f5f9;font-weight:600}
-#app{max-width:min(960px,100%);padding-left:max(1rem,env(safe-area-inset-left));padding-right:max(1rem,env(safe-area-inset-right))}
+#app{max-width:min(1480px,100%);padding-left:max(1rem,env(safe-area-inset-left));padding-right:max(1rem,env(safe-area-inset-right))}
 .metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0.75rem}
 @media (max-width:640px){
   .metric-grid{grid-template-columns:1fr}
   .quota-row{flex-wrap:wrap}
-  .quota-name{flex-basis:100%;max-width:100%}
+  .quota-gauge{flex-wrap:wrap;width:100%}
   .quota-track{flex:1 1 100%;max-width:none}
   th,td{font-size:12px}
+}
+@media (min-width:1440px){
+  .quota-track{max-width:7rem}
 }
 @media (prefers-reduced-motion:reduce){
   .bar,#toast,.copied-flash{transition:none!important}
@@ -148,6 +158,8 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
   .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
   .quota-state.unavail{color:#64748b}
+  .quota-gauge[aria-expanded="true"]{background:#1e293b}
+  .quota-tip{background:#e2e8f0;color:#0f172a}
   .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
   #toast{background:#e2e8f0!important;color:#0f172a!important}
 }
@@ -239,6 +251,13 @@ const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emera
   "other":"bg-slate-100 text-slate-600" };
 const NAME_BG = { "red":"bg-rose-100", "gold":"bg-amber-100", "green":"bg-emerald-100", "blue":"bg-sky-100" };
 const LOCALE="cs-CZ";
+const SERVICE_LABELS={
+  "Multi-Agent System Availability":"Dostupnost multiagentního systému",
+  "Multi-agent system availability":"Dostupnost multiagentního systému",
+  "Telegram Bridge":"Telegram most",
+  "LANA Hermes Telegram Lane":"LANA Hermes Telegram lane",
+};
+function serviceDisplayName(name){return SERVICE_LABELS[name]||name;}
 function fmtDuration(s){if(s==null)return "–";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;}
 function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE):"";}
@@ -246,6 +265,7 @@ function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
 let paused=false, pollTimer=null;
+let tipSeq=0;
 
 function renderTimeline(root, buckets, windowDays){
   const tl=q(root,".svc-timeline"); tl.innerHTML=""; const GREEN=98;
@@ -313,35 +333,86 @@ function quotaStateClass(state){
   if(s==="STALE"||s==="ZASTARALÉ") return "stale";
   return "unavail";
 }
-function renderQuotaBar(b){
+function gaugeMetrics(b){
   const used=Number(b.percent);
   const state=String(b.state||"").toUpperCase();
   const remRaw=b.remaining;
   const remaining=(remRaw==null||remRaw==="")?(isFinite(used)?Math.max(0,Math.min(100,100-used)):null):Number(remRaw);
   const unavail=state==="UNAVAILABLE"||state==="NEDOSTUPNÉ"||state==="N/A"||remaining==null||!isFinite(used);
-  const fill=unavail?0:Math.max(0,Math.min(100,used));
-  const fillCls=unavail?"bg-slate-300":(fill>=90?"bg-rose-500":fill>=70?"bg-amber-500":"bg-emerald-500");
-  const pctTxt=unavail?"neznámé":`${Number(remaining.toFixed(1))} % zbývá`;
-  const reset=b.reset_label?`reset ${b.reset_label}`:(String(b.title||"").match(/reset\s+([^·|/]+)/i)||[])[1];
+  const remShow=unavail?0:Math.max(0,Math.min(100,remaining));
+  const fillCls=unavail?"bg-slate-300":(used>=90?"bg-rose-500":used>=70?"bg-amber-500":"bg-emerald-500");
+  const pctTxt=unavail?"neznámé":`${Number(Number(remaining).toFixed(1))} % zbývá`;
+  const usedTxt=unavail?"neznámé":`${Number(used.toFixed(1))} % využito`;
+  const reset=b.reset_label?String(b.reset_label):(String(b.title||"").match(/reset\s+([^·|/]+)/i)||[])[1];
   const resetTxt=reset?`reset ${String(reset).trim()}`:"reset —";
-  const tip=b.title||[b.label,pctTxt,resetTxt,state].filter(Boolean).join(" · ");
+  const tip=[b.title||"", usedTxt, pctTxt, resetTxt, state?`stav ${state}`:"", b.freshness||""].filter(Boolean).join(" · ");
   const aria=unavail
-    ?`${b.label||"kvóta"}: údaj není dostupný`
+    ?`${b.label||"kvóta"}: údaj není dostupný${state?`, ${state}`:""}`
     :`${b.label||"kvóta"}: zbývá ${remaining} procent, využito ${used} procent${state?`, stav ${state}`:""}`;
-  return `<div class="quota-row" title="${esc(tip)}">`+
+  return {used, state, remaining, unavail, remShow, fillCls, pctTxt, resetTxt, tip, aria};
+}
+function placeTip(btn, tip){
+  const r=btn.getBoundingClientRect();
+  const pad=8; const tw=Math.min(352, window.innerWidth-2*pad);
+  let left=Math.min(Math.max(pad, r.left), window.innerWidth-tw-pad);
+  let top=r.bottom+6;
+  tip.style.width=tw+"px";
+  tip.style.left=left+"px";
+  tip.style.top=top+"px";
+  tip.style.position="fixed";
+  requestAnimationFrame(()=>{
+    const tr=tip.getBoundingClientRect();
+    if(tr.bottom>window.innerHeight-pad){
+      tip.style.top=Math.max(pad, r.top-tr.height-6)+"px";
+    }
+    if(tr.right>window.innerWidth-pad){
+      tip.style.left=Math.max(pad, window.innerWidth-tr.width-pad)+"px";
+    }
+  });
+}
+function closeQuotaTips(except){
+  document.querySelectorAll(".quota-tip.open").forEach(t=>{
+    if(except && t===except) return;
+    t.classList.remove("open");
+    const btn=document.querySelector(`[aria-describedby="${t.id}"]`);
+    if(btn) btn.setAttribute("aria-expanded","false");
+  });
+}
+function renderAgentGauge(b){
+  const m=gaugeMetrics(b);
+  const id="qtip-"+(++tipSeq);
+  const short=m.unavail?"—":`${Math.round(m.remShow)}%`;
+  return `<span class="quota-wrap">`+
+    `<button type="button" class="quota-gauge" aria-expanded="false" aria-describedby="${id}" title="${esc(m.tip)}" data-quota-tip>`+
+      `<span class="quota-name">${esc(b.label||"")}</span>`+
+      `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+      `<span class="sr-only">${esc(m.aria)}</span>`+
+      `<span aria-hidden="true" class="text-[11px] text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
+    `</button>`+
+    `<span id="${id}" role="tooltip" class="quota-tip">${esc(m.tip)}</span>`+
+  `</span>`;
+}
+function renderQuotaBar(b){
+  const m=gaugeMetrics(b);
+  return `<div class="quota-row" title="${esc(m.tip)}">`+
     `<span class="quota-name">${esc(b.label||"")}</span>`+
-    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${unavail?0:Math.round(remaining)}" aria-valuetext="${esc(aria)}" aria-label="${esc(aria)}"><span class="quota-fill ${fillCls}" style="width:${unavail?0:Math.max(0,Math.min(100,remaining))}%"></span></span>`+
-    `<span class="quota-pct">${esc(pctTxt)}</span>`+
-    `<span class="quota-reset">${esc(resetTxt)}</span>`+
-    (state?`<span class="quota-state ${quotaStateClass(state)}">${esc(state)}</span>`:"")+
+    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+
+    `<span class="quota-reset">${esc(m.resetTxt)}</span>`+
+    (m.state?`<span class="quota-state ${quotaStateClass(m.state)}">${esc(m.state)}</span>`:"")+
   `</div>`;
 }
-function renderCell(cell){
+function renderCell(cell, {compact=false}={}){
   if(!cell) return "–";
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
   const bars=cell.bars||[];
   if(bars.length){
-    return `<div class="quota-stack" title="${esc(cell.title||"")}">${bars.map(renderQuotaBar).join("")}</div>`;
+    // Persistent agents: exactly one simple gauge per column (5h / Týden).
+    const shown=compact?bars.slice(0,1):bars;
+    if(compact){
+      return `<div class="quota-stack">${shown.map(renderAgentGauge).join("")}</div>`;
+    }
+    return `<div class="quota-stack" title="${esc(cell.title||"")}">${shown.map(renderQuotaBar).join("")}</div>`;
   }
   return `<span title="${esc(cell.title||"")}" class="${tones[cell.tone]||''} whitespace-nowrap text-xs">${esc(cell.text||"–")}</span>`;
 }
@@ -420,11 +491,44 @@ function renderAgents(root, agents, summary=null, columns=[]){
       `<td class="px-2 py-1.5">${sid}</td>`+
       `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap" title="${esc(a.status_detail||'')}">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
       `<td class="px-2 py-1.5" title="${esc(statusTip)}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}"><span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span><span class="flex flex-col">${esc(statusTxt)}</span></span></td>`+
-      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c))}</td>`).join("")+
+      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:root.dataset.svc==="agents"})}</td>`).join("")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
     tb.appendChild(tr);
   });
 }
+document.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn){ closeQuotaTips(); return; }
+  const tip=document.getElementById(btn.getAttribute("aria-describedby"));
+  if(!tip) return;
+  const open=btn.getAttribute("aria-expanded")==="true";
+  closeQuotaTips(open?null:tip);
+  if(open){ btn.setAttribute("aria-expanded","false"); tip.classList.remove("open"); return; }
+  btn.setAttribute("aria-expanded","true"); tip.classList.add("open"); placeTip(btn, tip);
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape") closeQuotaTips();
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn||(e.key!=="Enter"&&e.key!==" ")) return;
+  e.preventDefault(); btn.click();
+});
+document.addEventListener("focusin",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn) return;
+  const tip=document.getElementById(btn.getAttribute("aria-describedby"));
+  if(!tip) return;
+  closeQuotaTips(tip); btn.setAttribute("aria-expanded","true"); tip.classList.add("open"); placeTip(btn, tip);
+});
+document.addEventListener("focusout",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn) return;
+  setTimeout(()=>{
+    if(document.activeElement&&document.activeElement.closest("[data-quota-tip]")===btn) return;
+    closeQuotaTips();
+  },0);
+});
+window.addEventListener("resize",()=>closeQuotaTips());
+window.addEventListener("scroll",()=>closeQuotaTips(), true);
 const OPEN_BY_DEFAULT=3;
 const collapseKey=n=>"agentsmon.collapsed:"+n;
 function setCollapsed(root,collapsed,persist){
@@ -480,7 +584,7 @@ async function refresh(){
       box.innerHTML=""; d.services.forEach(()=>box.appendChild(tpl.content.cloneNode(true)));
     }
     const sections=box.querySelectorAll("section");
-    d.services.forEach((s,i)=>{ const root=sections[i]; q(root,".svc-name").textContent=s.name; renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
+    d.services.forEach((s,i)=>{ const root=sections[i]; q(root,".svc-name").textContent=serviceDisplayName(s.name); renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
     document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
@@ -853,6 +957,7 @@ def require_auth_or_die(host: str, cfg: dict) -> None:
 
     The LAN exception requires a specific RFC1918 IPv4 address and an actual boolean;
     administrators must restrict incoming clients with the host firewall.
+    Use ``agentsmon setup`` to review bind/auth options.
     """
     auth = cfg.get("dashboard", {}).get("auth") or {}
     if _loopback(host) or (auth.get("user") and auth.get("pwhash")):
