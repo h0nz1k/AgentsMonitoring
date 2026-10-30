@@ -122,7 +122,7 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
                 alive = bool(pids)
         # Concrete model detected LIVE (so it stays current without rebuilding config); an
         # explicit config tag/vendor still wins if set.
-        model = daemon_model(d.get("name", ""))
+        model = daemon_model(d.get("name", ""), d.get("hermes_profile"))
         out.append({
             "name": d.get("name"), "kind": "daemon",
             "label": d.get("tag") or model or d.get("name"),
@@ -131,6 +131,9 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
             "session_id": None, "alive": alive, "age": age, "latency_ms": lat,
             "health_url": health_url,
             "port": _daemon_port(health_url) if (health_url and alive) else None,
+            # A second row of a shared process (e.g. one Hermes gateway, two profiles) must not
+            # offer its own restart/stop: config ``actions: false`` hides them.
+            **({"actions": False} if d.get("actions") is False else {}),
         })
     return out
 
@@ -642,13 +645,21 @@ def _openclaw_model() -> str | None:
     return _pretty_model(found[0]) if found else None
 
 
-def _hermes_model() -> str | None:
-    """Hermes' configured model from ~/.hermes/config.yaml (``model.default``). Hermes runs on
+def _hermes_profile_home(profile: str | None) -> Path:
+    """HERMES_HOME of a profile: the default profile lives in ~/.hermes, others under profiles/."""
+    root = Path.home() / ".hermes"
+    if profile and profile not in ("default", "main") and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", profile):
+        return root / "profiles" / profile
+    return root
+
+
+def _hermes_model(profile: str | None = None) -> str | None:
+    """Hermes' configured model from the profile's config.yaml (``model.default``). Hermes runs on
     the openai-codex *provider* but selects its own model there, so the provider default (Codex)
     is not authoritative — read the agent's own config so the tag follows a model switch.
     Best-effort; returns None on any failure so the caller can fall back."""
     try:
-        with (Path.home() / ".hermes" / "config.yaml").open(encoding="utf-8") as stream:
+        with (_hermes_profile_home(profile) / "config.yaml").open(encoding="utf-8") as stream:
             head = stream.read(65536)
     except OSError:
         return None
@@ -663,28 +674,36 @@ def _hermes_model() -> str | None:
                 lex=shlex.shlex(m.group(1),posix=True);lex.whitespace_split=True;lex.commenters='#'
                 values=list(lex)
             except ValueError: return None
-            if len(values)==1 and re.fullmatch(r'[A-Za-z0-9_./:-]+',values[0]): return _pretty_model(values[0])
+            if len(values)==1 and re.fullmatch(r'[A-Za-z0-9_./:-]+',values[0]): return prettify_model(values[0])
             return None
     return None
 
 
-def _hermes_live_model() -> str | None:
+def _hermes_live_model(profile: str | None = None) -> str | None:
     """Model the Hermes gateway is ACTUALLY using in its current Telegram conversation.
 
     ``model.default`` in config.yaml is only the boot default; a ``/model`` switch is stored as
     ``model_override`` on the routing entry, and every answered turn lands in
     ``session_model_usage`` (which also captures a fallback provider taking over). Order:
     explicit override → most recently used model of that session → ``sessions.model``.
+
+    One gateway serves several profiles and keeps all their routes in the DEFAULT store, keyed
+    ``agent:<profile>:telegram:…`` (``main`` = default profile). With ``profile`` set, only that
+    profile's routes count — otherwise a row would show whichever profile spoke last. Usage and
+    session rows are looked up in the default store and in the profile's own store.
     Read-only; any failure returns None so the caller falls back to the config default.
     """
     root = Path.home() / ".hermes"
     db = root / "state.db"
     if not db.exists():
         return None
+    prefix = None
+    if profile:
+        prefix = "agent:%s:" % ("main" if profile in ("default", "main") else profile)
+    sid, override = None, None
     try:
         with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
             conn.execute("PRAGMA query_only=ON")
-            sid, override = None, None
             for raw, in conn.execute(
                     "SELECT entry_json FROM gateway_routing WHERE scope=? AND length(entry_json)<65536 "
                     "ORDER BY updated_at DESC LIMIT 256", (str(root / "sessions"),)):
@@ -695,37 +714,50 @@ def _hermes_live_model() -> str | None:
                 if (not isinstance(entry, dict) or entry.get("platform") != "telegram"
                         or entry.get("expiry_finalized") or not isinstance(entry.get("session_id"), str)):
                     continue
+                if prefix and not str(entry.get("session_key") or "").startswith(prefix):
+                    continue
                 sid = entry["session_id"]
                 mo = entry.get("model_override")
                 override = mo.get("model") if isinstance(mo, dict) else (mo if isinstance(mo, str) else None)
                 break
-            if override:
-                return prettify_model(override)
-            if not sid:
-                return None
-            for query in ("SELECT model FROM session_model_usage WHERE session_id=? "
-                          "ORDER BY last_seen DESC LIMIT 1",
-                          "SELECT model FROM sessions WHERE id=?"):
-                try:
-                    row = conn.execute(query, (sid,)).fetchone()
-                except sqlite3.Error:
-                    continue
-                if row and isinstance(row[0], str) and row[0].strip():
-                    return prettify_model(row[0])
     except (sqlite3.Error, OSError):
         return None
+    if override:
+        return prettify_model(override)
+    if not sid:
+        return None
+    stores = [db]
+    own = _hermes_profile_home(profile) / "state.db"
+    if own != db and own.exists():
+        stores.insert(0, own)
+    for store in stores:
+        try:
+            with closing(sqlite3.connect(store.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
+                conn.execute("PRAGMA query_only=ON")
+                for query in ("SELECT model FROM session_model_usage WHERE session_id=? "
+                              "ORDER BY last_seen DESC LIMIT 1",
+                              "SELECT model FROM sessions WHERE id=?"):
+                    try:
+                        row = conn.execute(query, (sid,)).fetchone()
+                    except sqlite3.Error:
+                        continue
+                    if row and isinstance(row[0], str) and row[0].strip():
+                        return prettify_model(row[0])
+        except (sqlite3.Error, OSError):
+            continue
     return None
 
 
-def daemon_model(name: str) -> str | None:
-    """Concrete model a known daemon runs (best-effort, for the tag)."""
+def daemon_model(name: str, profile: str | None = None) -> str | None:
+    """Concrete model a known daemon runs (best-effort, for the tag). ``profile`` pins a Hermes
+    row to one profile of a shared gateway (config ``hermes_profile``)."""
     n = name.lower()
     if "openclaw" in n:
         return _openclaw_model()
-    if "hermes" in n:
+    if "hermes" in n or profile:
         # Hermes owns its model selection. Unknown configuration must stay unknown;
         # another CLI's rollout can belong to an entirely different account/session.
-        return _hermes_live_model() or _hermes_model()
+        return _hermes_live_model(profile) or _hermes_model(profile)
     return None
 
 
