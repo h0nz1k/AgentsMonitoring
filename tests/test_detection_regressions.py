@@ -7,7 +7,7 @@ from agentsmon import detect,wizard
 
 class ModelIdentity(unittest.TestCase):
     def test_hermes_never_borrows_codex_model_on_missing_config(self):
-        with patch.object(detect,'_hermes_model',return_value=None),patch.object(detect,'_codex_model',return_value='Wrong'),patch.object(detect,'_codex_model_any',return_value='Wrong'):
+        with patch.object(detect,'_hermes_model',return_value=None),patch.object(detect,'_hermes_live_model',return_value=None),patch.object(detect,'_codex_model',return_value='Wrong'),patch.object(detect,'_codex_model_any',return_value='Wrong'):
             self.assertIsNone(detect.daemon_model('Hermes'))
 
     def test_yaml_model_key_order_quotes_and_comments(self):

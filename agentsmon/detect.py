@@ -277,7 +277,8 @@ def _model_from_argv(cmds: list[str]) -> str | None:
     for cmd in cmds:
         try: parts = shlex.split(cmd)
         except ValueError: continue
-        if not parts or os.path.basename(parts[0]) not in ('claude','codex','agy','antigravity'): continue
+        if not parts or os.path.basename(parts[0]) not in ('claude','codex','agy','antigravity',
+                                                            'agent','cursor-agent'): continue
         for i,part in enumerate(parts):
             if part == '--model' and i+1 < len(parts): return prettify_model(parts[i+1])
             if part.startswith('--model='): return prettify_model(part.split('=',1)[1])
@@ -290,7 +291,11 @@ def prettify_model(raw: str) -> str:
     Routing by family matters: sending everything through the Claude prettifier left Gemini
     ids on screen exactly as the process was launched with them.
     """
-    r = raw or ""
+    r = (raw or "").strip()
+    if "/" in r:                                 # provider-qualified: google/gemini-4-argon
+        r = r.rsplit("/", 1)[-1]
+    if r.startswith("composer"):                 # Cursor: composer-2.5 → Composer 2.5
+        return " ".join(p if p[:1].isdigit() else p.capitalize() for p in r.split("-"))
     if r.startswith("gemini"):
         return _pretty_gemini_model(r)
     if r.split("/")[-1][:3].lower() in ("gpt", "o1-", "o3-", "o4-") or re.match(r"o\d", r):
@@ -663,6 +668,55 @@ def _hermes_model() -> str | None:
     return None
 
 
+def _hermes_live_model() -> str | None:
+    """Model the Hermes gateway is ACTUALLY using in its current Telegram conversation.
+
+    ``model.default`` in config.yaml is only the boot default; a ``/model`` switch is stored as
+    ``model_override`` on the routing entry, and every answered turn lands in
+    ``session_model_usage`` (which also captures a fallback provider taking over). Order:
+    explicit override → most recently used model of that session → ``sessions.model``.
+    Read-only; any failure returns None so the caller falls back to the config default.
+    """
+    root = Path.home() / ".hermes"
+    db = root / "state.db"
+    if not db.exists():
+        return None
+    try:
+        with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            sid, override = None, None
+            for raw, in conn.execute(
+                    "SELECT entry_json FROM gateway_routing WHERE scope=? AND length(entry_json)<65536 "
+                    "ORDER BY updated_at DESC LIMIT 256", (str(root / "sessions"),)):
+                try:
+                    entry = json.loads(raw)
+                except ValueError:
+                    continue
+                if (not isinstance(entry, dict) or entry.get("platform") != "telegram"
+                        or entry.get("expiry_finalized") or not isinstance(entry.get("session_id"), str)):
+                    continue
+                sid = entry["session_id"]
+                mo = entry.get("model_override")
+                override = mo.get("model") if isinstance(mo, dict) else (mo if isinstance(mo, str) else None)
+                break
+            if override:
+                return prettify_model(override)
+            if not sid:
+                return None
+            for query in ("SELECT model FROM session_model_usage WHERE session_id=? "
+                          "ORDER BY last_seen DESC LIMIT 1",
+                          "SELECT model FROM sessions WHERE id=?"):
+                try:
+                    row = conn.execute(query, (sid,)).fetchone()
+                except sqlite3.Error:
+                    continue
+                if row and isinstance(row[0], str) and row[0].strip():
+                    return prettify_model(row[0])
+    except (sqlite3.Error, OSError):
+        return None
+    return None
+
+
 def daemon_model(name: str) -> str | None:
     """Concrete model a known daemon runs (best-effort, for the tag)."""
     n = name.lower()
@@ -671,7 +725,7 @@ def daemon_model(name: str) -> str | None:
     if "hermes" in n:
         # Hermes owns its model selection. Unknown configuration must stay unknown;
         # another CLI's rollout can belong to an entirely different account/session.
-        return _hermes_model()
+        return _hermes_live_model() or _hermes_model()
     return None
 
 
@@ -691,12 +745,15 @@ def vendor_for_model(model: str | None) -> str | None:
     if not model:
         return None
     m = model.lower()
-    if "gpt" in m or m[:1] == "o":
-        return "openai"
-    if any(k in m for k in ("claude", "opus", "sonnet", "haiku")):
+    # Anthropic first: "Opus 5.5" starts with "o" and was coloured as OpenAI.
+    if any(k in m for k in ("claude", "opus", "sonnet", "haiku", "fable")):
         return "anthropic"
+    if "gpt" in m or re.match(r"o\d", m):
+        return "openai"
     if "gemini" in m:
         return "google"
+    if "composer" in m or "cursor" in m:
+        return "cursor"
     return None
 
 
@@ -750,6 +807,10 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
         elif kind == "antigravity":
             _, amodel = _antigravity_info_for_cwd(row['cwd'])
             label = antigravity_label(amodel, sid, ranked, label)
+        elif kind not in ("codex", "shell"):
+            # Config-matched agents (Cursor `agent --model composer-2.5`, …): the launch argv is
+            # the only live signal; keep the configured label when no --model is present.
+            label = _model_from_argv(ranked) or label
         resume = RESUME_TEMPLATES[kind].format(id=sid) if (sid and kind in RESUME_TEMPLATES
                   and not row.get('identity_conflict')) else None
         agents.append({
