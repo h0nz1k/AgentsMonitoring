@@ -101,7 +101,9 @@ def row(raw, plugin):
                 aid=ident(a['id'])
                 if aid in seen: raise ValueError('Duplicate action')
                 seen.add(aid)
-                if a.get('icon','restart') not in ('restart','stop','run'): raise ValueError('Invalid icon')
+                # 'reset' = provider quota reset (e.g. a banked Codex reset credit): rendered as a
+                # labelled pill, since spending it is irreversible and must never look like ↻.
+                if a.get('icon','restart') not in ('restart','stop','run','reset'): raise ValueError('Invalid icon')
                 actions.append({'id':aid,'label':text(a['label'],160),'icon':a.get('icon','restart'),
                                 'confirm':text(a.get('confirm',''),240)})
             out[k]=actions

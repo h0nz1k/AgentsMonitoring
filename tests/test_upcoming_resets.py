@@ -23,6 +23,20 @@ class ResetAtSchema(unittest.TestCase):
         self.assertNotIn("reset_at", c["bars"][0])
 
 
+class ResetRowAction(unittest.TestCase):
+    def test_reset_icon_allowed_and_unknown_icon_rejected(self):
+        base = {"id": "agentops", "name": "Codex", "alive": True}
+        r = plugins.row({**base, "row_actions": [{"id": "redeem_reset", "label": "Uplatnit reset (1×)",
+                                                  "icon": "reset", "confirm": "Nelze vrátit"}]}, "codex-quota")
+        self.assertEqual(r["row_actions"][0]["icon"], "reset")
+        with self.assertRaises(ValueError):
+            plugins.row({**base, "row_actions": [{"id": "x", "label": "x", "icon": "nuke"}]}, "codex-quota")
+
+    def test_reset_pill_rendered_in_page(self):
+        self.assertIn("reset-pill", dashboard.PAGE)
+        self.assertIn("x.icon==='reset'", dashboard.PAGE)
+
+
 class UpcomingResets(unittest.TestCase):
     NOW = 1_800_000_000
 
