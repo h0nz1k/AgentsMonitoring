@@ -2,7 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":dependencyDashboard",
     ":semanticCommits"
   ],
   "timezone": "Europe/Prague",
@@ -51,11 +50,10 @@
       "automerge": false
     },
     {
-      "description": "Major: jen po schválení v Dependency Dashboardu.",
+      "description": "Major: běžný PR k review (repo nemá issues, Dependency Dashboard nelze vytvořit).",
       "matchUpdateTypes": [
         "major"
       ],
-      "dependencyDashboardApproval": true,
       "automerge": false
     },
     {
@@ -72,5 +70,6 @@
       ],
       "automerge": false
     }
-  ]
+  ],
+  "dependencyDashboard": false
 }
