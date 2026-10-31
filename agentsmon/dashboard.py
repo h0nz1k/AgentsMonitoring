@@ -2534,7 +2534,9 @@ def make_server(host: str, port: int, cfg: dict):
             for k, v in SECURITY_HEADERS:
                 self.send_header(k, v)
             path = urlsplit(getattr(self, "path", "") or "").path
-            if path.startswith("/api/") or path == "/metrics":
+            # The page embeds the role/identity and the action JS, so a cached copy (e.g. a phone
+            # tab left open on the old LAN address) must never be reused.
+            if path.startswith("/api/") or path in ("/metrics", "/", "/index.html"):
                 self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
