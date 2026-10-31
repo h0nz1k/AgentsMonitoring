@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard", ":semanticCommits"],
+  "timezone": "Europe/Prague",
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "automergeSchedule": ["* 2 * * 6"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 2 * * 6"],
+    "automerge": true
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"],
+    "minimumReleaseAge": null
+  },
+  "packageRules": [
+    {
+      "description": "Patch, pin a digest updaty: automerge po zeleném CI v okně údržby (sobota 02:00–03:00 Praha).",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Minor: PR k review (orchestrátor / operátor).",
+      "matchUpdateTypes": ["minor"],
+      "automerge": false
+    },
+    {
+      "description": "Major: jen po schválení v Dependency Dashboardu.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions pinovat na digest (supply-chain).",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ]
+}
