@@ -100,6 +100,23 @@ class Endpoint(unittest.TestCase):
                 self.assertEqual(r.status, 200)
 
 
+class QuotaLoop(unittest.TestCase):
+    def test_background_tick_waits_for_cold_plugin_cache(self):
+        waits = iter([False, False, False, True])        # interval, retry, retry, stop
+
+        seen = []
+
+        class Stop:
+            def wait(self, seconds):
+                seen.append(seconds)
+                return next(waits)
+        snaps = iter([{"plugin_loading": True}, {"plugin_loading": True}, {"plugin_loading": False}])
+        with patch.object(dashboard, "_state_data", side_effect=lambda: next(snaps)) as sd:
+            dashboard._quota_loop(Stop(), interval=60)
+        self.assertEqual(sd.call_count, 3)
+        self.assertEqual(seen, [60, 3, 3, 60])            # quick retries only while plugins load
+
+
 class StateForecast(unittest.TestCase):
     def test_state_exposes_forecasts_and_annotated_resets(self):
         fc = [{"source": "Codex", "label": "7d", "used_pct": 50.0, "reset_at": 1_900_000_000,

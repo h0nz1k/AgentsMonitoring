@@ -1076,7 +1076,15 @@ def _quota_loop(stop: threading.Event, interval: int = 60) -> None:
     open. The state builder is cheap (plugins are cached and refreshed off-thread)."""
     while not stop.wait(interval):
         try:
-            _state_data()
+            data = _state_data()
+            # Without a browser polling, the plugin cache is cold: that build returns an empty
+            # 'loading' snapshot and starts a refresh. Retry briefly until real data is there.
+            for _ in range(10):
+                if not data.get("plugin_loading"):
+                    break
+                if stop.wait(3):
+                    return
+                data = _state_data()
         except Exception as exc:
             print(f"quota loop: {type(exc).__name__}: {exc}", flush=True)
 

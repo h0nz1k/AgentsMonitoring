@@ -288,8 +288,11 @@ def tick(cfg: dict, tables: list, agents: list, forecasts: list, now: float | No
         now = time.time() if now is None else now
         if not s.get("enabled") or now - _last_tick < int(s.get("interval_seconds") or 60):
             return
+        items = quota.series(tables, agents)
+        if not items:                               # cold plugin cache: wait for real data
+            return
         _last_tick = now
-        evaluate(s, quota.series(tables, agents), forecasts, now, lambda m: dispatch(m, s))
+        evaluate(s, items, forecasts, now, lambda m: dispatch(m, s))
     except Exception as exc:
         _log(f"vyhodnocení přeskočeno: {type(exc).__name__}: {exc}")
     finally:

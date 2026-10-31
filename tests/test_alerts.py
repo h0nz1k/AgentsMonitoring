@@ -175,6 +175,14 @@ class Tick(Base):
         d.assert_called_once()
         self.assertIn("využito 99 %", d.call_args[0][0])
 
+    def test_empty_snapshot_does_not_consume_the_tick(self):
+        alerts.start()
+        with patch.object(alerts, "dispatch") as d:
+            alerts.tick({"alerts": CFG}, self.tables(10), [], [], now=NOW)
+            alerts.tick({"alerts": CFG}, [], [], [], now=NOW + 120)        # plugins still loading
+            alerts.tick({"alerts": CFG}, self.tables(99), [], [], now=NOW + 125)
+        d.assert_called_once()
+
     def test_disabled_config(self):
         alerts.start()
         with patch.object(alerts, "dispatch") as d:
