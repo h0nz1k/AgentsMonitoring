@@ -139,5 +139,16 @@ class QuotaPageRendering(unittest.TestCase):
         self.assertIn("OPEN_DETAILS", page)
 
 
+class CompactResets(unittest.TestCase):
+    def test_summary_line_and_collapsible_list(self):
+        page = dashboard.PAGE
+        self.assertIn('<details class="resets-details">', page)
+        self.assertIn("Nejbližší reset:", page)
+        self.assertIn('matchMedia("(max-width:639px)")', page)
+        self.assertIn('collapseKey("resets")', page)
+        self.assertIn('class="reset-chip${e.exhausted?" exhausted"', page)
+        self.assertIn("data-reset-at", page)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -123,6 +123,13 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle}
 .reset-pill:hover{background:#fef3c7;border-color:#f59e0b}
 .quota-until{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.resets-sum{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-height:var(--touch);cursor:pointer;list-style:none}
+.resets-sum::-webkit-details-marker{display:none}
+.resets-sum::after{content:"▸";margin-left:auto;font-size:12px;color:#94a3b8}
+.resets-details[open] .resets-sum::after{content:"▾"}
+.resets-details[open] .resets-sum{margin-bottom:.25rem}
+.resets-sum:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.resets-extra .exh{color:#be123c;font-weight:700}
 .resets-list{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:0;padding:0}
 .reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:11px;line-height:1.25}
 .reset-chip .reset-when{font-weight:700;font-size:12px;color:#0f172a;font-variant-numeric:tabular-nums}
@@ -227,6 +234,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
   .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
   .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .resets-extra .exh{color:#fda4af}
   .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
   .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
   .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
@@ -386,9 +394,27 @@ function fcText(f){
   if(f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)}`;
   return "";
 }
+function initResetsPanel(){
+  // Collapsed by default on phones (<640px), open on larger screens; the user's choice sticks.
+  const d=document.querySelector("#resets-panel .resets-details"); if(!d) return;
+  let v=null; try{ v=localStorage.getItem(collapseKey("resets")); }catch(e){}
+  d.open=v==null?!(window.matchMedia&&window.matchMedia("(max-width:639px)").matches):v==="0";
+}
+document.addEventListener("click",e=>{
+  const s=e.target.closest("#resets-panel summary"); if(!s) return;
+  const d=s.parentElement;
+  setTimeout(()=>{ try{ localStorage.setItem(collapseKey("resets"), d.open?"0":"1"); }catch(_){} },0);
+});
 function renderResets(list){
   const box=document.getElementById("resets-panel"); if(!box) return;
   const items=list||[]; box.hidden=!items.length;
+  if(items.length){
+    const n=items[0], ex=items.filter(e=>e.exhausted);
+    box.querySelector(".resets-next").innerHTML=`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`;
+    box.querySelector(".resets-extra").innerHTML=
+      (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
+      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`;
+  }
   box.querySelector(".resets-list").innerHTML=items.map(e=>{
     const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
     const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
@@ -940,7 +966,7 @@ document.getElementById("btn-pause").addEventListener("click",ev=>{
   showToast(paused?"Automatická obnova pozastavena":"Automatická obnova běží");
   refresh();
 });
-refresh(); schedulePoll();
+initResetsPanel(); refresh(); schedulePoll();
 </script></body></html>"""
 
 
@@ -948,10 +974,12 @@ PAGE=PAGE.replace('AGENT_TABLES',
     AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
         .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')+
     '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
-    '<div class="flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">'
-    '<h2 class="text-base font-semibold">Nejbližší resety kvót</h2>'
-    '<span class="ml-auto text-xs text-slate-400">odpočet podle času serveru · vyčerpaná okna červeně</span></div>'
-    '<ul class="resets-list"></ul></section>'+
+    '<details class="resets-details">'
+    '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
+    '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
+    '<span class="resets-extra text-xs"></span></summary>'
+    '<p class="text-[11px] text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
+    '<ul class="resets-list"></ul></details></section>'+
     '<div id="plugin-tables"></div>'+
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>'+
