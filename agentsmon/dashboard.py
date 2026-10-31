@@ -27,9 +27,52 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
 
 
+_SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 14, 8, 1
+
+
 def password_hash(password: str) -> str:
-    """Hash a dashboard password for storage (we never keep the plaintext in config)."""
+    """Hash a dashboard password for storage (we never keep the plaintext in config).
+
+    Salted scrypt in the form ``scrypt$N$r$p$salt_hex$hash_hex``. Older configs hold an unsalted
+    SHA-256 hex digest; :func:`verify_password` still accepts that (see ``legacy_password_hash``)."""
+    salt = os.urandom(16)
+    dk = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32)
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${dk.hex()}"
+
+
+def legacy_password_hash(password: str) -> str:
+    """The pre-0.4 format: unsalted SHA-256 hex. Only for verifying old configs."""
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def is_legacy_hash(stored) -> bool:
+    return isinstance(stored, str) and re.fullmatch(r"[0-9a-fA-F]{64}", stored.strip()) is not None
+
+
+def verify_password(password: str, stored) -> bool:
+    """Constant-time check of *password* against a scrypt or legacy SHA-256 hash."""
+    if not isinstance(stored, str) or not isinstance(password, str):
+        return False
+    stored = stored.strip()
+    pw = password.encode("utf-8")
+    try:
+        if stored.startswith("scrypt$"):
+            _, n, r, p, salt, want = stored.split("$")
+            n, r, p = int(n), int(r), int(p)
+            if not (1 < n <= 2 ** 20 and n & (n - 1) == 0 and 0 < r <= 32 and 0 < p <= 16
+                    and 128 * n * r <= 2 ** 28):
+                return False
+            want_b, salt_b = bytes.fromhex(want), bytes.fromhex(salt)
+            if not 16 <= len(want_b) <= 64:
+                return False
+            got = hashlib.scrypt(pw, salt=salt_b, n=n, r=r, p=p,
+                                 maxmem=128 * r * (n + p + 2) + 2 ** 20, dklen=len(want_b))
+            return hmac.compare_digest(got, want_b)
+        if is_legacy_hash(stored):
+            return hmac.compare_digest(hashlib.sha256(pw).hexdigest().encode(), stored.lower().encode())
+    except (ValueError, TypeError, MemoryError, OverflowError):
+        return False
+    return False
 
 
 def _action_allowed(headers) -> bool:
@@ -43,15 +86,228 @@ def _action_allowed(headers) -> bool:
         return False
 
 
-def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
+def _basic_credentials(header):
     if not header or not header.startswith("Basic "):
-        return False
+        return None
     try:
-        raw = base64.b64decode(header[6:]).decode("utf-8")
+        raw = base64.b64decode(header[6:], validate=True).decode("utf-8")
     except Exception:
+        return None
+    u, sep, pw = raw.partition(":")
+    return (u, pw) if sep else None
+
+
+_AUTH_CACHE: set = set()          # digests of recently verified headers: scrypt once, not per poll
+_AUTH_CACHE_LOCK = threading.Lock()
+
+
+def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
+    creds = _basic_credentials(header)
+    if creds is None or not user or not pwhash:
         return False
-    u, _, pw = raw.partition(":")
-    return hmac.compare_digest(u, user) and hmac.compare_digest(password_hash(pw), pwhash)
+    key = hashlib.sha256(f"{pwhash}\0{user}\0{header}".encode("utf-8")).digest()
+    with _AUTH_CACHE_LOCK:
+        if key in _AUTH_CACHE:
+            return True
+    u, pw = creds
+    ok_user = hmac.compare_digest(u.encode("utf-8"), str(user).encode("utf-8"))
+    ok_pw = verify_password(pw, pwhash)
+    if ok_user and ok_pw:
+        with _AUTH_CACHE_LOCK:
+            if len(_AUTH_CACHE) >= 64:
+                _AUTH_CACHE.clear()
+            _AUTH_CACHE.add(key)
+        return True
+    return False
+
+
+def _bearer_ok(header, token: str) -> bool:
+    if not token or not header or not header.startswith("Bearer "):
+        return False
+    return hmac.compare_digest(header[7:].strip().encode("utf-8"), token.encode("utf-8"))
+
+
+# ---- Host / Origin allowlist (anti DNS rebinding) ------------------------------------------------
+
+def _split_hostport(value):
+    """``'Name:8765'`` → ``('name', '8765')``, ``'[::1]'`` → ``('::1', None)``; None if malformed."""
+    v = (value or "").strip().lower() if isinstance(value, str) else ""
+    if not v or any(c in v for c in "/@ \t\\?#,"):
+        return None
+    if v.startswith("["):
+        end = v.find("]")
+        if end < 0:
+            return None
+        name, rest = v[1:end], v[end + 1:]
+        if not rest:
+            return name, None
+        if not rest.startswith(":"):
+            return None
+        port = rest[1:]
+    elif v.count(":") > 1:                   # bare IPv6 (config convenience; not valid in Host)
+        return v, None
+    else:
+        name, sep, port = v.partition(":")
+        if not sep:
+            return name.rstrip("."), None
+    if not port.isdigit() or not name:
+        return None
+    return name.rstrip("."), str(int(port))
+
+
+def allowed_hosts(bind_host: str, port: int, cfg: dict | None = None) -> dict:
+    """Names the dashboard answers to: ``{name: {None, 'port'}}`` (None = Host without a port).
+
+    Bind address, loopback names, this machine's hostname (+ ``.local``/``.lan``) on the
+    configured port, plus ``dashboard.allowed_hosts`` (``"name"`` = any of no-port/our port,
+    ``"name:443"`` = exactly that)."""
+    import socket
+    port_s = str(int(port))
+    names = {"127.0.0.1", "localhost", "::1"}
+    bh = (bind_host or "").strip().lower().strip("[]")
+    if bh in ("", "0.0.0.0", "::"):
+        try:
+            names.update(str(ai[4][0]).lower() for ai in socket.getaddrinfo(socket.gethostname(), None))
+        except OSError:
+            pass
+    else:
+        names.add(bh)
+    try:
+        hn = socket.gethostname().strip().lower().rstrip(".")
+    except OSError:
+        hn = ""
+    if hn:
+        for base in {hn, hn.split(".")[0]}:
+            names.update({base, base + ".local", base + ".lan"})
+    allow = {n: {None, port_s} for n in names if n}
+    extra = ((cfg or {}).get("dashboard") or {}).get("allowed_hosts") or []
+    if isinstance(extra, str):
+        extra = [extra]
+    for item in extra if isinstance(extra, (list, tuple)) else []:
+        parsed = _split_hostport(item) if isinstance(item, str) else None
+        if not parsed:
+            continue
+        name, p = parsed
+        allow.setdefault(name, set()).update({p} if p else {None, port_s})
+    return allow
+
+
+def _host_allowed(value, allow: dict) -> bool:
+    parsed = _split_hostport(value)
+    return bool(parsed) and parsed[1] in allow.get(parsed[0], ())
+
+
+def _origin_allowed(origin, allow: dict) -> bool:
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit((origin or "").strip())
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and not u.path.strip("/") and _host_allowed(u.netloc, allow)
+
+
+def _post_rejection(headers, allow: dict):
+    """Why a state-changing request must be refused (``None`` = fine). Fetch-Metadata + Origin
+    on top of the X-Agentsmon header: browsers always send them, curl/CLI does not."""
+    if not _action_allowed(headers):
+        return "x-agentsmon"
+    site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site and site not in ("same-origin", "none"):
+        return "sec-fetch-site"
+    origin = headers.get("Origin")
+    if origin is not None and not _origin_allowed(origin, allow):
+        return "origin"
+    return None
+
+
+def _loopback_peer(ip) -> bool:
+    try:
+        a = ipaddress.ip_address(str(ip).split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(a, ipaddress.IPv6Address) and a.ipv4_mapped:
+        a = a.ipv4_mapped
+    return a.is_loopback
+
+
+# ---- security headers ------------------------------------------------------------------------
+
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+       "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", CSP),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+)
+
+
+# ---- rate limit + audit ----------------------------------------------------------------------
+
+class _RateLimiter:
+    """Per-key token bucket: *per_min* requests per minute, burst of the same size."""
+
+    def __init__(self, per_min):
+        try:
+            per_min = float(per_min)
+        except (TypeError, ValueError):
+            per_min = 10.0
+        self.rate, self.cap = per_min / 60.0, max(per_min, 1.0)
+        self.buckets: dict = {}
+        self.lock = threading.Lock()
+
+    def allow(self, key, now=None) -> bool:
+        if self.rate <= 0:
+            return True
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            tokens, last = self.buckets.get(key, (self.cap, now))
+            tokens = min(self.cap, tokens + (now - last) * self.rate)
+            ok = tokens >= 1.0
+            self.buckets[key] = (tokens - 1.0 if ok else tokens, now)
+            if len(self.buckets) > 4096:          # forget idle (already refilled) peers
+                for k in [k for k, (t, l) in self.buckets.items() if t + (now - l) * self.rate >= self.cap]:
+                    del self.buckets[k]
+            return ok
+
+
+AUDIT_MAX_BYTES = 5 * 1024 * 1024
+_AUDIT_LOCK = threading.Lock()
+
+
+def audit_path() -> Path:
+    return config.state_dir() / "audit.jsonl"
+
+
+def _clip(value, n: int):
+    if value is None:
+        return None
+    value = value if isinstance(value, str) else str(value)
+    return value if len(value) <= n else value[:n] + "…"
+
+
+def audit(entry: dict) -> None:
+    """Append one JSON line to ``<state_dir>/audit.jsonl`` (0600); rotate to ``.1`` past 5 MB.
+    Never raises: auditing must not break the action itself."""
+    try:
+        line = (json.dumps(entry, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        with _AUDIT_LOCK:
+            path = audit_path()
+            try:
+                if path.stat().st_size + len(line) > AUDIT_MAX_BYTES:
+                    os.replace(path, path.with_name(path.name + ".1"))
+            except FileNotFoundError:
+                pass
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                os.write(fd, line)
+            finally:
+                os.close(fd)
+    except Exception:
+        pass
 
 
 AGENT_TABLE = r"""
@@ -2066,32 +2322,127 @@ def serve(host: str, port: int) -> None:
     server.serve_forever()
 
 
+def _metrics_token(dcfg: dict) -> str:
+    tok = dcfg.get("metrics_token")
+    if not tok and dcfg.get("metrics_token_file"):
+        try:
+            tok = Path(os.path.expanduser(str(dcfg["metrics_token_file"]))).read_text(encoding="utf-8")
+        except OSError:
+            tok = None
+    return tok.strip() if isinstance(tok, str) else ""
+
+
+_MSG_421 = ("421 Misdirected Request – neznámá adresa v hlavičce Host. Dashboard otevřete přes jeho "
+            "IP adresu nebo název stroje (případně ji doplňte do dashboard.allowed_hosts).\n").encode("utf-8")
+_POST_REJECT_MSG = {
+    "x-agentsmon": "Chybí hlavička X-Agentsmon (požadavek z cizí stránky?).",
+    "sec-fetch-site": "Požadavek z cizí stránky byl odmítnut (Sec-Fetch-Site).",
+    "origin": "Požadavek z cizího původu byl odmítnut (Origin).",
+}
+
+
 def make_server(host: str, port: int, cfg: dict):
     """Same handler for production and isolated HTTP acceptance tests."""
+    import sys
+    from urllib.parse import urlsplit, parse_qs
     require_auth_or_die(host, cfg)
-    poll = cfg.get("dashboard", {}).get("poll_seconds", 15)
+    dcfg = cfg.get("dashboard", {}) or {}
+    poll = dcfg.get("poll_seconds", 15)
     page = PAGE.replace("POLL", str(poll)).encode()
-    auth = cfg.get("dashboard", {}).get("auth") or {}
+    auth = dcfg.get("auth") or {}
     auth_user, auth_hash = auth.get("user"), auth.get("pwhash")
+    if auth_user and is_legacy_hash(auth_hash):
+        print("VAROVÁNÍ: dashboard.auth.pwhash je starý nesolený SHA-256 – nastavte heslo znovu přes "
+              "`agentsmon setup` (uloží se jako scrypt).", file=sys.stderr)
+    metrics_token = _metrics_token(dcfg)
+    limiter = _RateLimiter(dcfg.get("post_rate_per_min", 10))
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 15                      # slowloris: a stalled client frees its thread after 15 s
+        server_version = "AgentsMonitoring"
+        sys_version = ""
+
         def log_message(self, *a):
             pass
+
+        def end_headers(self):
+            for k, v in SECURITY_HEADERS:
+                self.send_header(k, v)
+            path = urlsplit(getattr(self, "path", "") or "").path
+            if path.startswith("/api/") or path == "/metrics":
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def _reply(self, status, body: bytes, ctype="application/json", extra=()):
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            for k, v in extra:
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
 
         def _denied(self):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Agents Monitoring"')
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
+        def _host_ok(self, audited=False) -> bool:
+            hosts = self.headers.get_all("Host") or []
+            if len(hosts) == 1 and _host_allowed(hosts[0], self.server.agentsmon_allowed_hosts):
+                return True
+            if audited:
+                self._audit(421, "rejected", "host")
+            self._reply(421, _MSG_421, "text/plain; charset=utf-8")
+            return False
+
+        def _audit(self, status, result, reason=None, params=None, message=None):
+            p = params if isinstance(params, dict) else {}
+            entry = {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "client_ip": self.client_address[0] if self.client_address else None,
+                "user": getattr(self, "_audit_user", None),
+                "user_agent": _clip(self.headers.get("User-Agent"), 200),
+                "route": _clip(urlsplit(self.path).path, 200),
+            }
+            for k in ("name", "table", "row", "action"):
+                v = p.get(k)
+                entry[k] = _clip(v, 240) if isinstance(v, str) else None
+            entry.update({"status": status, "result": result})
+            if reason:
+                entry["reason"] = reason
+            if reason == "host":
+                entry["host"] = _clip(self.headers.get("Host"), 200)
+            if message is not None:
+                entry["message"] = _clip(message, 300)
+            audit(entry)
+
+        def _post_fail(self, status, reason, message, params=None, extra=()):
+            self._audit(status, "rejected", reason, params, message)
+            body = json.dumps({"ok": False, "error": reason, "message": message}, ensure_ascii=False).encode()
+            self._reply(status, body, "application/json", extra)
+
         def do_GET(self):
-            if auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
-                                                        auth_user, auth_hash):
+            if not self._host_ok():
+                return
+            is_metrics = self.path == "/metrics" or self.path.startswith("/metrics?")
+            bearer = False
+            if is_metrics and metrics_token:
+                bearer = _bearer_ok(self.headers.get("Authorization"), metrics_token)
+                if not bearer and not _loopback_peer(self.client_address[0]):
+                    return self._reply(401, "Chybí platný token pro /metrics.\n".encode("utf-8"),
+                                       "text/plain; charset=utf-8",
+                                       (("WWW-Authenticate", 'Bearer realm="agentsmon-metrics"'),))
+            if not bearer and auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
+                                                                       auth_user, auth_hash):
                 return self._denied()
             if self.path.startswith("/api/state"):
                 body = _state()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-            elif self.path == "/metrics" or self.path.startswith("/metrics?"):
+            elif is_metrics:
                 body = metrics.render(_state_data()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", metrics.CONTENT_TYPE)
@@ -2108,6 +2459,7 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_header("Cache-Control", "public, max-age=86400")
             else:
                 self.send_response(404)
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             self.send_header("Content-Length", str(len(body)))
@@ -2115,48 +2467,57 @@ def make_server(host: str, port: int, cfg: dict):
             self.wfile.write(body)
 
         def do_POST(self):
-            if auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
-                                                        auth_user, auth_hash):
-                return self._denied()
-            from urllib.parse import urlparse, parse_qs
-            parsed = urlparse(self.path)
+            self._audit_user = None
+            if not self._host_ok(audited=True):
+                return
+            if not limiter.allow(self.client_address[0]):
+                return self._post_fail(429, "rate-limit", "Příliš mnoho akcí za sebou – zkuste to za chvíli.",
+                                       extra=(("Retry-After", "10"),))
+            if auth_user and auth_hash:
+                if not _auth_ok(self.headers.get("Authorization"), auth_user, auth_hash):
+                    self._audit(401, "rejected", "auth")
+                    return self._denied()
+                self._audit_user = _clip((_basic_credentials(self.headers.get("Authorization")) or ("",))[0], 120)
+            parsed = urlsplit(self.path)
             if parsed.path != "/api/agent/action":
+                self._audit(404, "rejected", "not-found")
                 self.send_response(404)
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            if not _action_allowed(self.headers):
-                body = json.dumps({"ok": False, "error": "missing X-Agentsmon header (cross-site request?)"}).encode()
-                self.send_response(403)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
+            reason = _post_rejection(self.headers, self.server.agentsmon_allowed_hosts)
+            if reason:
+                return self._post_fail(403, reason, _POST_REJECT_MSG[reason])
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return self._post_fail(415, "content-type", "Požadavek musí být application/json.")
             try: length = int(self.headers.get("Content-Length", 0) or 0)
             except ValueError: length = -1
             if not 0 <= length <= 16384:
-                self.send_error(413); return
+                return self._post_fail(413, "length", "Neplatná délka požadavku.")
             raw = self.rfile.read(length) if length else b""
-            params = {}
             try:
                 params = json.loads(raw or b"{}")
             except ValueError:
-                params = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", "replace")).items()}
+                params = None
             if not isinstance(params, dict):
-                self.send_error(400); return
+                return self._post_fail(400, "json", "Neplatné JSON tělo požadavku.")
             qs = parse_qs(parsed.query)
             name = params.get("name") or (qs.get("name", [None])[0])
             act = params.get("action") or (qs.get("action", [None])[0])
             table, row = params.get('table'), params.get('row')
+            logged = {"name": name, "table": table, "row": row, "action": act}
             if table is not None:
                 if not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
-                    self.send_error(400); return
+                    return self._post_fail(400, "params", "Neplatné parametry akce.", logged)
                 ok, msg = plugins.manager(config.load()).action(table,row,act)
                 body = json.dumps({'ok':ok,'message':msg}).encode()
                 status = 200 if ok else 409
             elif not isinstance(name,str) or not name or act not in ("restart", "stop"):
+                self._audit(400, "rejected", "params", logged)
                 body = json.dumps({"ok": False, "error": "need name + action (restart|stop)"}).encode()
                 status = 400
+                ok = None
             else:
                 try:
                     ok, msg = _agent_action(name, act)
@@ -2164,13 +2525,13 @@ def make_server(host: str, port: int, cfg: dict):
                     ok, msg = False, str(exc)
                 body = json.dumps({"ok": ok, "message": msg}).encode()
                 status = 200 if ok else 500
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            if ok is not None:
+                self._audit(status, "ok" if ok else "error", None, logged, msg)
+            self._reply(status, body, "application/json")
 
-    return ThreadingHTTPServer((host, port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.agentsmon_allowed_hosts = allowed_hosts(host, server.server_port, cfg)
+    return server
 
 
 def pidfile_path():
