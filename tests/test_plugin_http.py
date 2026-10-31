@@ -1,5 +1,7 @@
 import base64
 import json
+import os
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -10,6 +12,8 @@ from agentsmon import dashboard
 
 class PluginHTTPGuard(unittest.TestCase):
     def setUp(self):
+        tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
+        env=patch.dict(os.environ,{'AGENTSMON_STATE':tmp.name});env.start();self.addCleanup(env.stop)
         self.cfg={'dashboard':{'auth':{'user':'fixture','pwhash':dashboard.password_hash('test-password')}}}
         self.server=dashboard.make_server('127.0.0.1',0,self.cfg)
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
@@ -20,7 +24,7 @@ class PluginHTTPGuard(unittest.TestCase):
 
     def post(self,headers):
         payload=json.dumps({'table':'fixture:team','row':'one','action':'reload','name':'collision'}).encode()
-        req=urllib.request.Request(f'http://127.0.0.1:{self.server.server_port}/api/agent/action',data=payload,headers=headers)
+        req=urllib.request.Request(f'http://127.0.0.1:{self.server.server_port}/api/agent/action',data=payload,headers={'Content-Type':'application/json',**headers})
         try:
             with urllib.request.urlopen(req,timeout=2) as r:return r.status,json.load(r)
         except urllib.error.HTTPError as e:return e.code,None
