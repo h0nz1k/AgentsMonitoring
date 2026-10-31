@@ -24,7 +24,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota
+from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
 
 
 def password_hash(password: str) -> str:
@@ -96,6 +96,9 @@ QUOTA_SECTION = r"""<template id="quota-table-tpl">
     </div>
   </section>
 </template>"""
+
+
+QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul></div></div></section>'
 
 
 PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
@@ -206,7 +209,79 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 @media (prefers-reduced-motion:reduce){
   .bar,#toast,.copied-flash{transition:none!important}
 }
+.ovr{display:inline-flex;align-items:center;gap:.35rem;min-height:2rem;padding:0 .7rem;border:1px solid #e2e8f0;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;background:#fff;color:#475569}
+.ovr.ok{border-color:#a7f3d0;background:#ecfdf5;color:#047857}.ovr.warning{border-color:#fcd34d;background:#fffbeb;color:#92400e}.ovr.critical{border-color:#fda4af;background:#fff1f2;color:#be123c}
+.attn{border:1px solid #fcd34d;border-radius:.5rem;background:#fffbeb;padding:.5rem .75rem}
+.attn.critical{border-color:#fda4af;background:#fff1f2}
+.attn h2{font-size:15px;font-weight:600;margin:0 0 .25rem}
+.attn-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.attn-item{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .6rem;min-height:var(--touch);border-top:1px solid rgba(148,163,184,.3);font-size:13px}
+.attn-item:first-child{border-top:0}
+.attn-ico{flex:0 0 1.4rem;text-align:center;font-weight:700}
+.attn-item.critical .attn-ico{color:#be123c}.attn-item.warning .attn-ico{color:#b45309}.attn-item.info .attn-ico{color:#0369a1}
+.attn-text{flex:1 1 16rem;min-width:0;word-break:break-word;color:#334155}
+.attn-link,.q-link{display:inline-flex;align-items:center;min-height:var(--touch);color:#0369a1;font-weight:600;text-decoration:none}
+.attn-link:hover,.attn-link:focus-visible,.q-link:hover,.q-link:focus-visible{text-decoration:underline;outline-offset:1px}
+.attn-item .reset-pill{min-height:var(--touch);margin:0}
+.q-bar{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .4rem;margin-bottom:.5rem}
+.q-ctr{min-height:var(--touch);padding:0 .55rem;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+.q-ctr[aria-pressed="true"]{background:#e0f2fe;border-color:#38bdf8;color:#075985}
+.q-ctr.bad{color:#be123c;border-color:#fda4af}.q-ctr.warn{color:#92400e;border-color:#fcd34d}
+.q-ctr:focus-visible,.q-tab:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.q-sep{color:#94a3b8;font-size:12px}
+.q-gh{margin-left:auto}
+.q-tabs{display:flex;flex-wrap:wrap;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
+.q-tab{min-height:var(--touch);padding:0 .7rem;border:0;border-bottom:2px solid transparent;background:transparent;color:#475569;font-size:13px;font-weight:600}
+.q-tab[aria-selected="true"]{border-bottom-color:#0284c7;color:#0369a1}
+.q-note{margin:.25rem 0 .5rem;padding:.4rem .6rem;border:1px solid #fcd34d;border-radius:.4rem;background:#fffbeb;color:#92400e;font-size:12px}
+.q-list{list-style:none;margin:0;padding:0;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff}
+.q-item{display:grid;grid-template-columns:3.5rem minmax(0,1fr) 9rem 8rem 8.5rem 5.5rem;align-items:center;gap:.25rem .6rem;padding:.3rem .7rem;border-top:1px solid #f1f5f9;font-size:13px}
+.q-item:first-child{border-top:0}
+.q-empty{padding:.75rem;color:#94a3b8;font-size:13px}
+.q-num{font-variant-numeric:tabular-nums;font-weight:600}
+.q-title{display:flex;align-items:center;gap:.35rem;min-width:0}
+.q-title a,.q-title .q-tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:#0f172a;text-decoration:none}
+.q-title a:hover,.q-title a:focus-visible{text-decoration:underline;color:#0369a1}
+.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:700;cursor:help}
+.q-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .5rem;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;width:max-content}
+.q-badge.running{background:#e0f2fe;color:#075985}.q-badge.queued{background:#f1f5f9;color:#334155}
+.q-badge.awaiting_pickup{background:#ede9fe;color:#5b21b6}.q-badge.blocked{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
+.q-badge.failed{background:#fff1f2;color:#be123c;border:1px solid #fda4af}.q-badge.done{background:#ecfdf5;color:#047857}
+.q-who,.q-age{color:#64748b;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q-age{font-variant-numeric:tabular-nums}
+.q-pr{display:flex;align-items:center;gap:.3rem;font-size:12px;white-space:nowrap}
+.ci{font-weight:700}.ci.success{color:#059669}.ci.failure{color:#be123c}.ci.pending{color:#b45309}
+.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase}
+.q-extra{grid-column:2 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 .75rem;font-size:12px;color:#64748b}
+.q-extra .pod>summary{min-height:2rem;line-height:2rem}
+@media (max-width:639px){
+  .q-list{border:0;background:transparent;display:flex;flex-direction:column;gap:.5rem}
+  .q-item{display:flex;flex-wrap:wrap;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;padding:.5rem .7rem}
+  .q-item:first-child{border-top:1px solid #e2e8f0}
+  .q-title{flex:1 1 calc(100% - 4rem)}
+  .q-title a,.q-num a,.q-pr a{min-height:var(--touch);display:inline-flex;align-items:center}
+  .q-extra .pod>summary{min-height:var(--touch);line-height:var(--touch)}
+  .q-gh{margin-left:0}
+}
 @media (prefers-color-scheme:dark){
+  .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}.ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
+  .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}.ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
+  .attn{background:rgba(120,53,15,.25);border-color:#b45309}.attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
+  .attn-text{color:#e2e8f0}.attn-link,.q-link{color:#38bdf8}
+  .attn-item.critical .attn-ico{color:#fda4af}.attn-item.warning .attn-ico{color:#fcd34d}.attn-item.info .attn-ico{color:#7dd3fc}
+  .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}.q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
+  .q-ctr.bad{color:#fda4af;border-color:#9f1239}.q-ctr.warn{color:#fcd34d;border-color:#b45309}
+  .q-tabs{border-color:#1e293b}.q-tab{color:#94a3b8}.q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
+  .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
+  .q-list{background:#0f172a;border-color:#1e293b}.q-item{border-color:#1e293b}
+  .q-title a,.q-title .q-tt{color:#e2e8f0}.q-title a:hover{color:#38bdf8}
+  .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}.q-badge.queued{background:#1e293b;color:#cbd5e1}
+  .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}.q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
+  .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}.q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
+  .q-who,.q-age,.q-extra{color:#94a3b8}.ci.success{color:#34d399}.ci.failure{color:#fb7185}.ci.pending{color:#fbbf24}
+  .q-draft{border-color:#475569;color:#94a3b8}
+  @media (max-width:639px){.q-list{background:transparent}.q-item{background:#0f172a;border-color:#1e293b}.q-item:first-child{border-top-color:#1e293b}}
   body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
   .bg-white{background-color:#0f172a!important}
   .bg-slate-50{background-color:#020617!important}
@@ -258,9 +333,18 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
 <div id="app" class="mx-auto px-5 py-6">
   <header class="mb-4">
-    <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
-    <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, kvót poskytovatelů a dostupnosti služeb.</p>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
+      <span id="overall-pill" class="ovr" title="Celkový stav">načítání…</span>
+    </div>
+    <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, fronty práce, kvót poskytovatelů a dostupnosti služeb.</p>
   </header>
+  <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
+    <h2 id="attn-h">Vyžaduje pozornost</h2>
+    <ul class="attn-list" role="list"></ul>
+    <p class="attn-more text-[11px] text-slate-500" hidden></p>
+  </section>
   <div class="toolbar" role="toolbar" aria-label="Ovládání dashboardu">
     <button type="button" id="btn-refresh" title="Obnovit teď">Obnovit</button>
     <button type="button" id="btn-pause" aria-pressed="false" title="Pozastavit automatickou obnovu">Pozastavit obnovu</button>
@@ -877,15 +961,171 @@ document.addEventListener("keydown",e=>{
   const root=h.closest("section"); if(!root) return;
   setCollapsed(root, root.dataset.collapsed!=="1", true);
 });
+// ---- Fronta práce (server: agentsmon/workqueue.py, read-only) ----
+const Q_TAB_KEY="agentsmon.queue.tab";
+const Q_TABS=[["aktivni","Aktivní"],["problem","Blokováno/Selhalo"],["nezarazene","Nezařazené"],["hotovo","Hotovo 24 h"],["vse","Vše"]];
+const Q_STATE={running:["▶","Běží"],queued:["◷","Ve frontě"],awaiting_pickup:["⧗","Čeká na převzetí"],blocked:["⛔","Blokováno"],failed:["✕","Selhalo"],done:["✓","Hotovo"]};
+const CI_ICON={success:["✓","CI úspěšné"],failure:["✕","CI selhalo"],pending:["…","CI probíhá"]};
+let QTAB=(()=>{ try{ const v=localStorage.getItem(Q_TAB_KEY); return Q_TABS.some(t=>t[0]===v)?v:"aktivni"; }catch(e){ return "aktivni"; } })();
+let QFILTER=null;   // "state:<s>" from a header counter; overrides the tab until cleared
+let QDATA=null;
+function ghUrl(u){ return (typeof u==="string"&&/^https:\/\/github\.com\//.test(u))?u:null; }
+function ghLink(u,html,cls,label){
+  const s=ghUrl(u);
+  return s?`<a class="${cls||""}" href="${esc(s)}" target="_blank" rel="noopener noreferrer"${label?` aria-label="${esc(label)}"`:""}>${html}</a>`:html;
+}
+function fmtAgo(s){
+  if(s==null||!isFinite(Number(s))) return "–";
+  s=Math.max(0,Math.round(Number(s))); if(s<60) return "před chvílí";
+  const d=Math.floor(s/86400),h=Math.floor(s/3600),m=Math.floor(s/60);
+  return d?`před ${d} d`:h?`před ${h} h`:`před ${m} min`;
+}
+function qMatch(it,view){
+  if(view&&view.startsWith("state:")) return !!it.tracked&&it.state===view.slice(6);
+  if(view==="nezarazene") return !it.tracked;
+  if(!it.tracked) return false;               // untracked items live only in „Nezařazené“
+  if(view==="aktivni") return it.state==="running"||it.state==="queued"||it.state==="awaiting_pickup";
+  if(view==="problem") return it.state==="blocked"||it.state==="failed";
+  if(view==="hotovo") return it.state==="done"&&!(Number(it.age_seconds)>86400);
+  return true;
+}
+function qItem(it){
+  const st=Q_STATE[it.state]||["•",it.state];
+  const label=it.state_label_cs||st[1];
+  const t=it.task||null, pr=it.pr||null;
+  const key="qi:"+(it.kind||"")+":"+(it.issue||(t&&t.id)||it.title||"");
+  const num=it.issue?ghLink(it.url,`#${esc(it.issue)}`,"q-link",`${it.kind==="pr"?"PR":"Issue"} #${it.issue} na GitHubu`)
+    :`<span class="text-slate-400" title="${esc((t&&t.id)||"")}">—</span>`;
+  const title=ghUrl(it.url)
+    ?`<a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.title)}">${esc(it.title)}</a>`
+    :`<span class="q-tt" title="${esc(it.title)}">${esc(it.title)}</span>`;
+  const mm=it.mismatch?`<span class="q-mm" tabindex="0" title="${esc(it.mismatch)}" aria-label="Nesoulad: ${esc(it.mismatch)}"><span aria-hidden="true">⚠</span>nesoulad</span>`:"";
+  const who=[it.worker,it.profile].filter(Boolean).join(" · ");
+  let prHtml="";
+  if(pr&&pr.number){
+    const ci=CI_ICON[pr.ci];
+    prHtml=ghLink(pr.url,`PR #${esc(pr.number)}`,"q-link",`PR #${pr.number}${pr.title?": "+pr.title:""}`)+
+      (ci?`<span class="ci ${esc(pr.ci)}" role="img" title="${ci[1]}" aria-label="${ci[1]}">${ci[0]}</span>`:"")+
+      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Draft</span>`:"")+
+      (pr.review==="APPROVED"?`<span class="ci success">schváleno</span>`:pr.review==="CHANGES_REQUESTED"?`<span class="ci failure">změny</span>`:"");
+  }
+  const tries=t&&(Number(t.attempts)||Number(t.max_retries))?`pokus ${Number(t.attempts)||0}${Number(t.max_retries)?"/"+Number(t.max_retries):""}`:"";
+  const det=[];
+  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("lane "+t.lane); if(t.error) det.push("chyba: "+t.error); }
+  if(it.mismatch) det.push("⚠ "+it.mismatch);
+  if((it.labels||[]).length) det.push("štítky: "+it.labels.join(", "));
+  if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
+  const details=det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+    `<ul class="pod-body">${det.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`:"";
+  return `<li class="q-item">`+
+    `<span class="q-num">${num}</span>`+
+    `<span class="q-title">${title}${mm}</span>`+
+    `<span class="q-badge ${esc(it.state)}"><span aria-hidden="true">${st[0]}</span>${esc(label)}</span>`+
+    `<span class="q-who" title="${esc(who)}">${who?esc(who):"–"}</span>`+
+    `<span class="q-pr">${prHtml||'<span class="text-slate-300" aria-label="bez PR">–</span>'}</span>`+
+    `<span class="q-age" title="${esc(it.updated_at?"aktualizováno "+fmtTime(it.updated_at):"")}">${esc(fmtAgo(it.age_seconds))}</span>`+
+    ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")+
+  `</li>`;
+}
+function renderQueue(qd){
+  const root=document.getElementById("fronta"); if(!root) return;
+  QDATA=qd||null;
+  if(!qd||!qd.enabled){ root.hidden=true; return; }
+  root.hidden=false; initCollapse(root,"fronta",1);
+  const s=qd.summary||{}, m=qd.meta||{}, items=qd.items||[];
+  const n=k=>Number(s[k])||0, slots=n("running_slots_max")||2;
+  const look=n("failed")?STATE.outage:(n("blocked")||m.stale&&!qd.loading)?STATE.stale:qd.loading?STATE.nodata:STATE.operational;
+  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  const prob=n("failed")+n("blocked");
+  cnt.textContent=qd.loading?"načítání…":`běží ${n("running")}/${slots} · čeká ${n("queued")+n("awaiting_pickup")}`+(prob?` · ${prob} ${plural(prob,"problém","problémy","problémů")}`:"");
+  const ctrs=[["running",`běží ${n("running")}/${slots}`,""],["queued",`fronta ${n("queued")}`,""],
+    ["awaiting_pickup",`čeká ${n("awaiting_pickup")}`,""],["blocked",`blok ${n("blocked")}`,n("blocked")?"warn":""],
+    ["failed",`selhalo ${n("failed")}`,n("failed")?"bad":""],["done",`hotovo 24 h ${n("done_24h")}`,""]];
+  q(root,".q-counters").innerHTML=ctrs.map((c,i)=>(i?`<span class="q-sep" aria-hidden="true">·</span>`:"")+
+    `<button type="button" class="q-ctr ${c[2]}" data-qfilter="${c[0]}" aria-pressed="${QFILTER==="state:"+c[0]}" title="Filtrovat: ${esc(Q_STATE[c[0]][1])}">${esc(c[1])}</button>`).join("");
+  const gh=q(root,".q-gh"), repo=ghUrl(m.repo_url);
+  gh.hidden=!repo; if(repo){ gh.href=repo; gh.title="Otevřít "+(m.repo||"repozitář")+" na GitHubu"; }
+  q(root,".q-tabs").innerHTML=Q_TABS.map(([id,lab])=>{
+    const c=items.filter(it=>qMatch(it,id)).length, sel=!QFILTER&&QTAB===id;
+    return `<button type="button" role="tab" class="q-tab" data-qtab="${id}" aria-selected="${sel}" aria-controls="q-panel">${esc(lab)} <span class="tabular-nums">(${c})</span></button>`;
+  }).join("");
+  const parts=[], errs=m.source_errors||[];
+  if(m.stale&&!qd.loading) parts.push("Zastaralá data fronty"+(m.last_success_at?` – poslední úspěšné načtení ${fmtAgo(nowSec()-Number(m.last_success_at))}`:""));
+  if(errs.length) parts.push("Chyby zdrojů: "+errs.join(" · "));
+  const note=q(root,".q-note"); note.hidden=!parts.length; note.textContent=parts.join(". ");
+  const view=QFILTER||QTAB, shown=items.filter(it=>qMatch(it,view));
+  q(root,".q-list").innerHTML=(qd.loading&&!items.length)?`<li class="q-empty">načítání…</li>`
+    :shown.length?shown.map(qItem).join(""):`<li class="q-empty">${QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}</li>`;
+}
+function setQueueView(tab,filter){
+  if(tab){ QTAB=tab; try{ localStorage.setItem(Q_TAB_KEY,tab); }catch(_){} }
+  QFILTER=filter||null; renderQueue(QDATA);
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-qtab]");
+  if(t){ setQueueView(t.dataset.qtab,null); const b=document.querySelector(`[data-qtab="${t.dataset.qtab}"]`); if(b) b.focus(); return; }
+  const c=e.target.closest("[data-qfilter]");
+  if(c){ const f="state:"+c.dataset.qfilter; setQueueView(null,QFILTER===f?null:f);
+    const b=document.querySelector(`[data-qfilter="${c.dataset.qfilter}"]`); if(b) b.focus(); }
+});
+// ---- Vyžaduje pozornost + celkový stav (spočítáno na serveru: compute_attention) ----
+const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],info:["ℹ","Informace"]};
+let lastAttnCount=null;
+function renderAttention(list,ov){
+  const box=document.getElementById("attention"); if(!box) return;
+  const items=Array.isArray(list)?list:[], total=Math.max(items.length,Number(ov&&ov.total)||0);
+  box.hidden=!items.length;
+  box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
+  document.getElementById("attn-h").textContent=`Vyžaduje pozornost (${total})`;
+  q(box,".attn-list").innerHTML=items.map(a=>{
+    const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
+    let link="";
+    if(/^#[A-Za-z0-9_-]+$/.test(href)){
+      const id=href.slice(1);
+      link=`<a class="attn-link" href="${esc(href)}" data-attn="${esc(id)}"`+(a.queue_tab?` data-qtab-go="${esc(a.queue_tab)}"`:"")+
+        (id.startsWith("kvota-")?` data-acct="${esc(id)}"`:"")+`>Detail →</a>`;
+    }else if(ghUrl(href)){
+      link=`<a class="attn-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`;
+    }
+    const x=a.action;
+    const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
+      row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
+    const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
+    return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
+      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span>${esc(a.text_cs)}${cd}</span>${act}${link}</li>`;
+  }).join("");
+  const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
+  const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
+  pill.className="ovr "+(ov?lv:"");
+  pill.innerHTML=ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–";
+  const cnt=Number(ov&&ov.count)||0;
+  document.title=(cnt?`(${cnt}) `:"")+"Monitorování agentů";
+  if(lastAttnCount!==null&&cnt!==lastAttnCount)
+    document.getElementById("attn-live").textContent=cnt?`Vyžaduje pozornost: ${cnt} ${plural(cnt,"položka","položky","položek")}`:"Vše v provozu";
+  lastAttnCount=cnt;
+}
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a[data-attn]"); if(!a||a.dataset.acct) return;   // quota links: data-acct handler
+  const el=document.getElementById(a.dataset.attn); if(!el) return;
+  e.preventDefault();
+  const sec=el.closest("section"); if(sec&&sec.dataset.collapsed==="1") setCollapsed(sec,false,true);
+  if(a.dataset.qtabGo) setQueueView(a.dataset.qtabGo,null);
+  const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
+});
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
     if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
     renderResets(d.resets);
+    try{ renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
     ACCTS={};
     (d.agent_tables||[]).forEach(t=>{ if(t.kind==="quota") (t.rows||[]).forEach(r=>{ ACCTS[t.id+"|"+r.id]=r; }); });
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
     renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
+    try{ renderQueue(d.queue); }catch(err){ console.error("queue",err); }
     const tables=document.getElementById("plugin-tables");
     const wanted=(d.agent_tables||[]).map(t=>t.id+"/"+(t.kind||"")).join("|");
     if(tables.dataset.keys!==wanted){
@@ -898,7 +1138,7 @@ async function refresh(){
       tables.dataset.keys=wanted;
     }
     (d.agent_tables||[]).forEach((t,i)=>{
-      const root=tables.children[i]; q(root,"h2").textContent=t.title;
+      const root=tables.children[i]; q(root,"h2").textContent=t.title; if(t.anchor) root.id=t.anchor;
       if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
       initCollapse(root,t.id,i+1);
     });
@@ -913,7 +1153,7 @@ async function refresh(){
       box.innerHTML=""; d.services.forEach(()=>box.appendChild(tpl.content.cloneNode(true)));
     }
     const sections=box.querySelectorAll("section");
-    d.services.forEach((s,i)=>{ const root=sections[i]; q(root,".svc-name").textContent=serviceDisplayName(s.name); renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
+    d.services.forEach((s,i)=>{ const root=sections[i]; if(s.anchor) root.id=s.anchor; q(root,".svc-name").textContent=serviceDisplayName(s.name); renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
     document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
@@ -972,7 +1212,9 @@ initResetsPanel(); refresh(); schedulePoll();
 
 PAGE=PAGE.replace('AGENT_TABLES',
     AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
-        .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')+
+        .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
+        .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
+    QUEUE_SECTION+
     '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
     '<details class="resets-details">'
     '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
@@ -1255,14 +1497,174 @@ def _state_data() -> dict:
     forecasts = quota.observe(agent_tables, agents)
     quota.annotate(agent_tables, agents, resets, forecasts)
     alerts.tick(cfg, agent_tables, agents, forecasts)
+    for s in services:
+        s["anchor"] = "sluzba-" + _anchor_slug(s.get("name"))
+    for t in agent_tables:
+        t.setdefault("anchor", "tabulka-" + _anchor_slug(t.get("id") or t.get("title")))
     data = {"time": int(time.time()), "agents": agents,
             "agent_tables": agent_tables,
             "resets": resets, "forecasts": forecasts,
             "columns": _merge_columns_by_title(extra['columns']),
             "plugin_errors": extra['errors'], "plugins": extra['plugins'],
             "plugin_loading": extra.get('loading', False),
-            "core": core_status(), "services": services}
+            "core": core_status(), "services": services,
+            "queue": workqueue.get(cfg)}
+    data["attention"], data["overall"] = compute_attention(data)
     return data
+
+
+# ---- "Vyžaduje pozornost" + overall status (server-side, so the page only renders) ----------
+ATTENTION_MAX = 6
+_SEV_ORDER = {"critical": 0, "warning": 1, "info": 2}
+SERVICE_LABELS_CS = {
+    "Multi-Agent System Availability": "Dostupnost multiagentního systému",
+    "Multi-agent system availability": "Dostupnost multiagentního systému",
+    "Telegram Bridge": "Telegram most",
+    "LANA Hermes Telegram Lane": "LANA Hermes Telegram lane",
+}
+_STOPPED = ("Stopped (manual)", "Zastaveno (ručně)")
+
+
+def _cz_plural(n: int, one: str, few: str, many: str) -> str:
+    return one if n == 1 else few if 2 <= n <= 4 else many
+
+
+def _cz_duration(sec) -> str:
+    try:
+        sec = max(0, int(sec))
+    except (TypeError, ValueError):
+        return "?"
+    d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+    return f"{d} d {h} h" if d else f"{h} h {m} min" if h else f"{max(1, m)} min"
+
+
+def _bar_exhausted(b: dict) -> bool:
+    state = str(b.get("state") or "").upper()
+    if state in ("UNAVAILABLE", "NEDOSTUPNÉ", "N/A"):
+        return False
+    rem, used = b.get("remaining"), b.get("percent")
+    return (state in ("VYČERPÁNO", "EXHAUSTED") or (type(rem) in (int, float) and rem <= 0)
+            or (type(used) in (int, float) and used >= 100))
+
+
+def _gh(url) -> str | None:
+    return url if isinstance(url, str) and url.startswith("https://github.com/") else None
+
+
+def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]:
+    """Everything that needs a human, worst first: ``([{severity, text_cs, href, action}],
+    {level, text_cs, count, total})``. ``count`` = critical + warning items (tab title badge);
+    the list is capped at ATTENTION_MAX, ``total`` is the uncapped length. Never raises."""
+    now = time.time() if now is None else now
+    out: list[dict] = []
+
+    def add(sev, text, href=None, action=None, **extra):
+        out.append({"severity": sev, "text_cs": text, "href": href, "action": action, **extra})
+
+    try:
+        for s in data.get("services") or []:
+            name = SERVICE_LABELS_CS.get(s.get("name"), s.get("name") or "služba")
+            href = "#" + (s.get("anchor") or "services")
+            if s.get("state") == "outage":
+                add("critical", f"{name}: výpadek", href)
+            elif s.get("state") == "stale":
+                age = f" (poslední data před {_cz_duration(s.get('data_age'))})" if s.get("data_age") is not None else ""
+                add("warning", f"{name}: Zastaralá data{age}", href)
+            bad = [r for r in s.get("rows") or [] if r.get("state") == "outage"]
+            if bad and s.get("state") != "outage":
+                add("warning", f"{name}: {len(bad)} {_cz_plural(len(bad), 'kontrola', 'kontroly', 'kontrol')} ve výpadku"
+                    f" ({', '.join(str(r.get('name')) for r in bad[:3])})", href)
+        rows = [(a, "#agenti") for a in data.get("agents") or []]
+        rows += [(r, "#" + (t.get("anchor") or "plugin-tables")) for t in data.get("agent_tables") or []
+                 if t.get("kind") != "quota" for r in t.get("rows") or []]
+        for a, href in rows:
+            name = a.get("name") or a.get("id") or "agent"
+            if a.get("status") in _STOPPED:
+                add("info", f"Agent {name}: zastaven ručně", href)
+            elif not a.get("alive"):
+                add("critical", f"Agent {name}: neběží", href)
+            elif a.get("needs_login"):
+                add("warning", f"Agent {name}: čeká na přihlášení", href)
+        for t in data.get("agent_tables") or []:
+            if t.get("kind") != "quota":
+                continue
+            for r in t.get("rows") or []:
+                exh = [b for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
+                       if _bar_exhausted(b)]
+                if not exh:
+                    continue
+                labels = ", ".join(dict.fromkeys(str(b.get("label") or "okno") for b in exh))
+                resets = [b.get("reset_at") for b in exh if type(b.get("reset_at")) is int and b["reset_at"] > now]
+                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label")]
+                text = f"{r.get('name') or r.get('id')}: vyčerpáno {labels}"
+                if when and resets:
+                    text += f" – reset {when[0]}"
+                elif when:                      # no timestamp, only a period ("měsíc")
+                    text += f" ({when[0]})"
+                act = next((x for x in r.get("row_actions") or [] if x.get("id") == "redeem_reset"), None)
+                action = ({"kind": "row_action", "table": t.get("id"), "row": r.get("id"),
+                           "name": r.get("name") or r.get("id"), "id": act.get("id"),
+                           "label": act.get("label") or "Uplatnit reset", "icon": act.get("icon") or "reset",
+                           "confirm": act.get("confirm") or ""} if act else None)
+                add("warning", text, "#" + r["anchor"] if r.get("anchor") else "#plugin-tables", action,
+                    reset_at=min(resets) if resets else None)
+        for p in data.get("plugin_errors") or []:
+            add("warning", f"Plugin {p.get('name')}: {str(p.get('detail') or 'chyba')[:140]}", "#plugin-errors")
+        qd = data.get("queue") or {}
+        if qd.get("enabled") and not qd.get("loading"):
+            sm, meta, items = qd.get("summary") or {}, qd.get("meta") or {}, qd.get("items") or []
+            tracked = [i for i in items if i.get("tracked")]
+
+            def nums(state):
+                return ", ".join(f"#{i['issue']}" for i in tracked if i.get("state") == state and i.get("issue"))[:60]
+
+            def one_url(state):
+                hits = [i for i in tracked if i.get("state") == state]
+                return _gh(hits[0].get("url")) if len(hits) == 1 else None
+
+            n = int(sm.get("failed") or 0)
+            if n:
+                add("critical", f"Fronta: {n} {_cz_plural(n, 'úloha selhala', 'úlohy selhaly', 'úloh selhalo')}"
+                    + (f" ({nums('failed')})" if nums("failed") else ""), one_url("failed") or "#fronta",
+                    queue_tab="problem")
+            n = int(sm.get("blocked") or 0)
+            if n:
+                add("warning", f"Fronta: {n} {_cz_plural(n, 'úloha blokována', 'úlohy blokovány', 'úloh blokováno')}"
+                    + (f" ({nums('blocked')})" if nums("blocked") else ""), one_url("blocked") or "#fronta",
+                    queue_tab="problem")
+            red = [i for i in items if (i.get("pr") or {}).get("ci") == "failure"]
+            seen = set()
+            red = [i for i in red if not (i["pr"].get("number") in seen or seen.add(i["pr"].get("number")))]
+            if len(red) == 1:
+                pr = red[0]["pr"]
+                add("warning", f"PR #{pr.get('number')}: CI selhalo – {str(pr.get('title') or red[0].get('title') or '')[:80]}",
+                    _gh(pr.get("url")) or "#fronta", queue_tab="vse")
+            elif red:
+                add("warning", f"{len(red)} PR s chybou CI ({', '.join('#' + str(i['pr'].get('number')) for i in red[:4])})",
+                    "#fronta", queue_tab="vse")
+            if meta.get("stale") or meta.get("source_errors"):
+                errs = meta.get("source_errors") or []
+                add("warning", "Fronta práce: Zastaralá data" + (f" – {str(errs[0])[:120]}" if errs else ""), "#fronta")
+            n = int(sm.get("awaiting_pickup") or 0)
+            if n:
+                add("info", f"Fronta: {n} {_cz_plural(n, 'položka čeká', 'položky čekají', 'položek čeká')} na převzetí",
+                    "#fronta", queue_tab="aktivni")
+            n = int(sm.get("mismatches") or 0)
+            if n:
+                add("info", f"Fronta: {n} {_cz_plural(n, 'nesoulad', 'nesoulady', 'nesouladů')} GitHub × supervisor",
+                    "#fronta", queue_tab="vse")
+    except Exception as exc:                      # the panel must never break /api/state
+        add("warning", f"Výpočet upozornění selhal: {type(exc).__name__}", None)
+    out.sort(key=lambda x: _SEV_ORDER.get(x["severity"], 9))       # stable: keeps source order
+    count = sum(1 for x in out if x["severity"] in ("critical", "warning"))
+    if any(x["severity"] == "critical" for x in out):
+        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count})"}
+    elif count:
+        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count})"}
+    else:
+        overall = {"level": "ok", "text_cs": "Vše v provozu"}
+    overall.update(count=count, total=len(out))
+    return out[:ATTENTION_MAX], overall
 
 
 def upcoming_resets(tables: list, agents: list, now: float | None = None, limit: int = 24) -> list:
@@ -1486,6 +1888,7 @@ def serve(host: str, port: int) -> None:
         threading.Thread(target=_probe_loop, args=(threading.Event(),), daemon=True).start()
     quota.start()
     alerts.start()
+    workqueue.start(cfg)      # GitHub/supervisor work queue: background cache, no-op when disabled
     threading.Thread(target=_quota_loop, args=(threading.Event(),), daemon=True,
                      name="agentsmon-quota").start()
     write_pidfile()
