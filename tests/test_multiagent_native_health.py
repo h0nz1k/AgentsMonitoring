@@ -1,10 +1,8 @@
 """Native multiagent health: disabled legacy bridges are N/A, not outages."""
 import os
 import sys
-import tempfile
 import time
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
