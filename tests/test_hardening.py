@@ -111,7 +111,8 @@ class Headers(Base):
                     self.assertIn("default-src 'self'", h["content-security-policy"])
                     self.assertNotIn("python", h.get("server", "").lower())
             self.assertEqual(self.req("GET", "/api/state")[1]["cache-control"], "no-store")
-            self.assertNotIn("no-store", self.req("GET", "/")[1].get("cache-control", ""))
+            # The page embeds identity/role and action JS: never reuse a cached copy.
+            self.assertIn("no-store", self.req("GET", "/")[1].get("cache-control", ""))
 
     def test_csp_fits_the_page(self):
         import re
