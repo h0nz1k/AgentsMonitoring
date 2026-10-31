@@ -42,6 +42,9 @@ DEFAULTS = {
     "dashboard": {"host": "127.0.0.1", "port": 8765, "poll_seconds": 15},
     "probe": {"interval_seconds": 60, "sla_window_days": 90, "timeline_days": 90, "min_outage_samples": 3},
     "keepalive": {"enabled": True, "interval_seconds": 60},
+    # Pane heuristics: `waiting_patterns` = list of regexes (null → built-in defaults in
+    # agentsmon/detect.py DEFAULT_WAITING_PATTERNS, [] → "Čeká na vstup" detection off).
+    "detect": {"waiting_patterns": None},
 }
 
 

@@ -5,28 +5,77 @@ Pure standard-library HTTP server (no Flask/FastAPI). Serves one self-contained 
 and one availability card per **service** (status dot, Uptime / Availability-SLA / Latency
 metrics, and a day-by-day availability timeline). A background thread probes services on an
 interval and appends to the uptime DB, so just leaving the dashboard running builds history.
-Binds 127.0.0.1 by default; optional HTTP Basic auth (config.dashboard.auth). UI text is English.
+Binds 127.0.0.1 by default; optional HTTP Basic auth (config.dashboard.auth) or Tailscale Serve
+identity headers (``dashboard.auth_mode: "tailscale"``, loopback bind only, admin/viewer roles).
+UI text is Czech (lang=cs, Intl cs-CZ).
 """
 from __future__ import annotations
 
 import base64
+import ipaddress
+import re
+import unicodedata
 import hashlib
 import hmac
 import json
 from pathlib import Path
 import os
+import secrets
 import shutil
 import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, db, detect, keepalive, probe, plugins
+from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
+
+
+_SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 14, 8, 1
 
 
 def password_hash(password: str) -> str:
-    """Hash a dashboard password for storage (we never keep the plaintext in config)."""
+    """Hash a dashboard password for storage (we never keep the plaintext in config).
+
+    Salted scrypt in the form ``scrypt$N$r$p$salt_hex$hash_hex``. Older configs hold an unsalted
+    SHA-256 hex digest; :func:`verify_password` still accepts that (see ``legacy_password_hash``)."""
+    salt = os.urandom(16)
+    dk = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32)
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${dk.hex()}"
+
+
+def legacy_password_hash(password: str) -> str:
+    """The pre-0.4 format: unsalted SHA-256 hex. Only for verifying old configs."""
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def is_legacy_hash(stored) -> bool:
+    return isinstance(stored, str) and re.fullmatch(r"[0-9a-fA-F]{64}", stored.strip()) is not None
+
+
+def verify_password(password: str, stored) -> bool:
+    """Constant-time check of *password* against a scrypt or legacy SHA-256 hash."""
+    if not isinstance(stored, str) or not isinstance(password, str):
+        return False
+    stored = stored.strip()
+    pw = password.encode("utf-8")
+    try:
+        if stored.startswith("scrypt$"):
+            _, n, r, p, salt, want = stored.split("$")
+            n, r, p = int(n), int(r), int(p)
+            if not (1 < n <= 2 ** 20 and n & (n - 1) == 0 and 0 < r <= 32 and 0 < p <= 16
+                    and 128 * n * r <= 2 ** 28):
+                return False
+            want_b, salt_b = bytes.fromhex(want), bytes.fromhex(salt)
+            if not 16 <= len(want_b) <= 64:
+                return False
+            got = hashlib.scrypt(pw, salt=salt_b, n=n, r=r, p=p,
+                                 maxmem=128 * r * (n + p + 2) + 2 ** 20, dklen=len(want_b))
+            return hmac.compare_digest(got, want_b)
+        if is_legacy_hash(stored):
+            return hmac.compare_digest(hashlib.sha256(pw).hexdigest().encode(), stored.lower().encode())
+    except (ValueError, TypeError, MemoryError, OverflowError):
+        return False
+    return False
 
 
 def _action_allowed(headers) -> bool:
@@ -40,37 +89,385 @@ def _action_allowed(headers) -> bool:
         return False
 
 
-def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
+def _basic_credentials(header):
     if not header or not header.startswith("Basic "):
-        return False
+        return None
     try:
-        raw = base64.b64decode(header[6:]).decode("utf-8")
+        raw = base64.b64decode(header[6:], validate=True).decode("utf-8")
     except Exception:
+        return None
+    u, sep, pw = raw.partition(":")
+    return (u, pw) if sep else None
+
+
+_AUTH_CACHE: set = set()          # digests of recently verified headers: scrypt once, not per poll
+_AUTH_CACHE_LOCK = threading.Lock()
+
+
+def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
+    creds = _basic_credentials(header)
+    if creds is None or not user or not pwhash:
         return False
-    u, _, pw = raw.partition(":")
-    return hmac.compare_digest(u, user) and hmac.compare_digest(password_hash(pw), pwhash)
+    key = hashlib.sha256(f"{pwhash}\0{user}\0{header}".encode("utf-8")).digest()
+    with _AUTH_CACHE_LOCK:
+        if key in _AUTH_CACHE:
+            return True
+    u, pw = creds
+    ok_user = hmac.compare_digest(u.encode("utf-8"), str(user).encode("utf-8"))
+    ok_pw = verify_password(pw, pwhash)
+    if ok_user and ok_pw:
+        with _AUTH_CACHE_LOCK:
+            if len(_AUTH_CACHE) >= 64:
+                _AUTH_CACHE.clear()
+            _AUTH_CACHE.add(key)
+        return True
+    return False
+
+
+def _bearer_ok(header, token: str) -> bool:
+    if not token or not header or not header.startswith("Bearer "):
+        return False
+    return hmac.compare_digest(header[7:].strip().encode("utf-8"), token.encode("utf-8"))
+
+
+# ---- Host / Origin allowlist (anti DNS rebinding) ------------------------------------------------
+
+def _split_hostport(value):
+    """``'Name:8765'`` → ``('name', '8765')``, ``'[::1]'`` → ``('::1', None)``; None if malformed."""
+    v = (value or "").strip().lower() if isinstance(value, str) else ""
+    if not v or any(c in v for c in "/@ \t\\?#,"):
+        return None
+    if v.startswith("["):
+        end = v.find("]")
+        if end < 0:
+            return None
+        name, rest = v[1:end], v[end + 1:]
+        if not rest:
+            return name, None
+        if not rest.startswith(":"):
+            return None
+        port = rest[1:]
+    elif v.count(":") > 1:                   # bare IPv6 (config convenience; not valid in Host)
+        return v, None
+    else:
+        name, sep, port = v.partition(":")
+        if not sep:
+            return name.rstrip("."), None
+    if not port.isdigit() or not name:
+        return None
+    return name.rstrip("."), str(int(port))
+
+
+def allowed_hosts(bind_host: str, port: int, cfg: dict | None = None) -> dict:
+    """Names the dashboard answers to: ``{name: {None, 'port'}}`` (None = Host without a port).
+
+    Bind address, loopback names, this machine's hostname (+ ``.local``/``.lan``) on the
+    configured port, plus ``dashboard.allowed_hosts`` (``"name"`` = any of no-port/our port,
+    ``"name:443"`` = exactly that)."""
+    import socket
+    port_s = str(int(port))
+    names = {"127.0.0.1", "localhost", "::1"}
+    bh = (bind_host or "").strip().lower().strip("[]")
+    if bh in ("", "0.0.0.0", "::"):
+        try:
+            names.update(str(ai[4][0]).lower() for ai in socket.getaddrinfo(socket.gethostname(), None))
+        except OSError:
+            pass
+    else:
+        names.add(bh)
+    try:
+        hn = socket.gethostname().strip().lower().rstrip(".")
+    except OSError:
+        hn = ""
+    if hn:
+        for base in {hn, hn.split(".")[0]}:
+            names.update({base, base + ".local", base + ".lan"})
+    allow = {n: {None, port_s} for n in names if n}
+    extra = ((cfg or {}).get("dashboard") or {}).get("allowed_hosts") or []
+    if isinstance(extra, str):
+        extra = [extra]
+    for item in extra if isinstance(extra, (list, tuple)) else []:
+        parsed = _split_hostport(item) if isinstance(item, str) else None
+        if not parsed:
+            continue
+        name, p = parsed
+        allow.setdefault(name, set()).update({p} if p else {None, port_s})
+    return allow
+
+
+def _host_allowed(value, allow: dict) -> bool:
+    parsed = _split_hostport(value)
+    return bool(parsed) and parsed[1] in allow.get(parsed[0], ())
+
+
+def _origin_allowed(origin, allow: dict) -> bool:
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit((origin or "").strip())
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and not u.path.strip("/") and _host_allowed(u.netloc, allow)
+
+
+def _post_rejection(headers, allow: dict):
+    """Why a state-changing request must be refused (``None`` = fine). Fetch-Metadata + Origin
+    on top of the X-Agentsmon header: browsers always send them, curl/CLI does not."""
+    if not _action_allowed(headers):
+        return "x-agentsmon"
+    site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site and site not in ("same-origin", "none"):
+        return "sec-fetch-site"
+    origin = headers.get("Origin")
+    if origin is not None and not _origin_allowed(origin, allow):
+        return "origin"
+    return None
+
+
+def _loopback_peer(ip) -> bool:
+    try:
+        a = ipaddress.ip_address(str(ip).split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(a, ipaddress.IPv6Address) and a.ipv4_mapped:
+        a = a.ipv4_mapped
+    return a.is_loopback
+
+
+# ---- Tailscale identity (dashboard.auth_mode = "tailscale") -----------------------------------
+#
+# Tailscale Serve terminates HTTPS for the tailnet and proxies to http://127.0.0.1:<port>. For
+# untagged user devices it adds Tailscale-User-Login / Tailscale-User-Name and strips any incoming
+# copies of those headers. They are trusted only when (a) the server is bound to loopback
+# (enforced at startup by check_auth_mode) and (b) the TCP peer is loopback.
+#
+# ACCEPTED LIMITATION: any local process (in particular one running as the same OS user,
+# agentops) can connect to 127.0.0.1 and forge Tailscale-User-Login. That process already holds
+# the same OS privileges (systemctl --user, tmux, kill), so the dashboard is not a security
+# boundary against it; the audit log still records such requests.
+#
+# Roles: dashboard.admins (logins) -> admin; other logins -> viewer when dashboard.viewers holds
+# "*" or the login, otherwise 403. A loopback request WITHOUT identity and without proxy headers
+# (local scripts curling /api/state, /metrics) -> read-only viewer. A *proxied* request without
+# identity (tagged device, Funnel) gets no access at all.
+
+TS_LOGIN, TS_NAME = "Tailscale-User-Login", "Tailscale-User-Name"
+ROLE_CS = {"admin": "správce", "viewer": "čtenář"}
+AUTH_MODES = ("basic", "tailscale")
+_PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "Tailscale-Funnel-Request")
+
+
+def check_auth_mode(host: str, dcfg: dict) -> str:
+    """Validate ``dashboard.auth_mode``; tailscale mode must listen on a loopback literal."""
+    mode = dcfg.get("auth_mode") or "basic"
+    if mode not in AUTH_MODES:
+        raise SystemExit(f"unknown dashboard.auth_mode {mode!r} (expected one of {', '.join(AUTH_MODES)})")
+    if mode == "tailscale" and host not in ("127.0.0.1", "::1"):
+        raise SystemExit(
+            f"refusing to listen on {host} with dashboard.auth_mode=tailscale — identity headers are "
+            "only trustworthy behind Tailscale Serve on loopback. Set dashboard.host to 127.0.0.1.")
+    return mode
+
+
+def _login_set(values) -> set:
+    return {v.strip().lower() for v in values or [] if isinstance(v, str) and v.strip()}
+
+
+def _decode_display_name(value: str) -> str:
+    try:
+        from email.header import decode_header, make_header
+        value = str(make_header(decode_header(value)))
+    except Exception:
+        pass
+    return "".join(c for c in value if c.isprintable())[:120]
+
+
+def tailscale_identity(headers, peer, dcfg: dict) -> dict:
+    """Resolve the caller: ``{"role": "admin"|"viewer"|None, "user", "name", "source", "reason"}``.
+    ``role`` None means: refuse (403)."""
+    if not _loopback_peer(peer):
+        return {"role": None, "user": None, "name": "", "source": "remote", "reason": "peer"}
+    logins = headers.get_all(TS_LOGIN) or []
+    login = logins[0].strip() if len(logins) == 1 else ""
+    if len(logins) > 1 or (logins and (not login or len(login) > 254 or not login.isprintable())):
+        return {"role": None, "user": None, "name": "", "source": "tailscale", "reason": "identity"}
+    if not login:
+        if any(headers.get(h) for h in _PROXY_HEADERS):
+            return {"role": None, "user": None, "name": "", "source": "proxy", "reason": "identity"}
+        return {"role": "viewer", "user": None, "name": "", "source": "loopback", "reason": None}
+    name = _decode_display_name(headers.get(TS_NAME) or "")
+    low = login.lower()
+    viewers = _login_set(dcfg.get("viewers"))
+    if low in _login_set(dcfg.get("admins")):
+        role = "admin"
+    elif "*" in viewers or low in viewers:
+        role = "viewer"
+    else:
+        role = None
+    return {"role": role, "user": login, "name": name, "source": "tailscale",
+            "reason": None if role else "not-allowed"}
+
+
+# Step-up: destructive actions need a second, server-issued one-time confirmation. Restart stays
+# single-confirm. Plugin action ids are matched by word so e.g. "redeem_reset" / "delete_x" count.
+STEP_UP_ACTIONS = frozenset({"stop", "redeem_reset"})
+_DANGER_RE = re.compile(r"(^|[_-])(redeem|reset|delete|remove|purge|kill|stop|wipe|revoke)([_-]|$)")
+
+
+def needs_step_up(action, table, dcfg: dict) -> bool:
+    if not isinstance(action, str):
+        return False
+    extra = {a for a in dcfg.get("step_up_actions") or [] if isinstance(a, str)}
+    if action in STEP_UP_ACTIONS or action in extra:
+        return True
+    return table is not None and bool(_DANGER_RE.search(action))
+
+
+def step_up_summary(action, name, table, row) -> str:
+    who = name or row or "?"
+    if table is None and action == "stop":
+        return f"Zastavit agenta „{who}“"
+    if action == "redeem_reset":
+        return f"Uplatnit reset kvóty pro „{who}“ – nevratné"
+    return f"Spustit akci „{action}“ pro „{who}“"
+
+
+class ConfirmTokens:
+    """One-time confirmation tokens bound to (user, action, target), TTL seconds, in memory."""
+
+    def __init__(self, ttl=120, clock=time.monotonic):
+        try:
+            ttl = float(ttl)
+        except (TypeError, ValueError):
+            ttl = 120.0
+        self.ttl, self.clock = ttl if ttl > 0 else 120.0, clock
+        self.items: dict = {}
+        self.lock = threading.Lock()
+
+    def issue(self, user, action, target) -> str:
+        token = secrets.token_urlsafe(24)
+        now = self.clock()
+        with self.lock:
+            for k in [k for k, v in self.items.items() if v[3] <= now]:
+                del self.items[k]
+            while len(self.items) >= 256:
+                del self.items[next(iter(self.items))]
+            self.items[token] = (user, action, tuple(target), now + self.ttl)
+        return token
+
+    def redeem(self, token, user, action, target):
+        """``None`` when valid (and consumed); otherwise the reason. Any presented token is spent."""
+        with self.lock:
+            item = self.items.pop(token, None) if isinstance(token, str) else None
+        if item is None:
+            return "unknown"
+        if item[3] <= self.clock():
+            return "expired"
+        if item[:3] != (user, action, tuple(target)):
+            return "mismatch"
+        return None
+
+
+# ---- security headers ------------------------------------------------------------------------
+
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+       "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", CSP),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+)
+
+
+# ---- rate limit + audit ----------------------------------------------------------------------
+
+class _RateLimiter:
+    """Per-key token bucket: *per_min* requests per minute, burst of the same size."""
+
+    def __init__(self, per_min):
+        try:
+            per_min = float(per_min)
+        except (TypeError, ValueError):
+            per_min = 10.0
+        self.rate, self.cap = per_min / 60.0, max(per_min, 1.0)
+        self.buckets: dict = {}
+        self.lock = threading.Lock()
+
+    def allow(self, key, now=None) -> bool:
+        if self.rate <= 0:
+            return True
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            tokens, last = self.buckets.get(key, (self.cap, now))
+            tokens = min(self.cap, tokens + (now - last) * self.rate)
+            ok = tokens >= 1.0
+            self.buckets[key] = (tokens - 1.0 if ok else tokens, now)
+            if len(self.buckets) > 4096:          # forget idle (already refilled) peers
+                for k in [k for k, (t, l) in self.buckets.items() if t + (now - l) * self.rate >= self.cap]:
+                    del self.buckets[k]
+            return ok
+
+
+AUDIT_MAX_BYTES = 5 * 1024 * 1024
+_AUDIT_LOCK = threading.Lock()
+
+
+def audit_path() -> Path:
+    return config.state_dir() / "audit.jsonl"
+
+
+def _clip(value, n: int):
+    if value is None:
+        return None
+    value = value if isinstance(value, str) else str(value)
+    return value if len(value) <= n else value[:n] + "…"
+
+
+def audit(entry: dict) -> None:
+    """Append one JSON line to ``<state_dir>/audit.jsonl`` (0600); rotate to ``.1`` past 5 MB.
+    Never raises: auditing must not break the action itself."""
+    try:
+        line = (json.dumps(entry, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        with _AUDIT_LOCK:
+            path = audit_path()
+            try:
+                if path.stat().st_size + len(line) > AUDIT_MAX_BYTES:
+                    os.replace(path, path.with_name(path.name + ".1"))
+            except FileNotFoundError:
+                pass
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                os.write(fd, line)
+            finally:
+                os.close(fd)
+    except Exception:
+        pass
 
 
 AGENT_TABLE = r"""
   <section class="mb-6" data-svc="KEY" HIDDEN>
-    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">
-      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0"></span>
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
+      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
       <h2 class="text-base font-semibold">TITLE</h2>
-      <span class="agents-count ml-auto text-sm font-medium text-slate-400">loading…</span>
-      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="collapse / expand">▾</span>
+      <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
+      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
     <div class="svc-body">
+    <p class="scroll-hint text-[11px] text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
     <div class="rounded-lg border border-slate-200 bg-white overflow-x-auto">
-      <table class="w-full text-sm" style="table-layout:fixed;min-width:680px"><colgroup><col style="width:21%"><col style="width:13%"><col style="width:32%"><col style="width:12%"><col style="width:14%"><col style="width:8%"></colgroup><thead>
+      <table class="w-full text-sm agents-table" style="table-layout:auto"><thead>
         <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
           <th class="text-left font-medium px-2 py-2">Agent</th>
           <th class="text-left font-medium px-2 py-2">Model</th>
-          <th class="text-left font-medium px-2 py-2">Session ID / Port</th>
-          <th class="text-left font-medium px-2 py-2">Started</th>
-          <th class="text-left font-medium px-2 py-2">Status</th>
+          <th class="text-left font-medium px-2 py-2">Relace / port</th>
+          <th class="text-left font-medium px-2 py-2">Spuštěno</th>
+          <th class="text-left font-medium px-2 py-2">Stav</th>
           <th class="text-right font-medium px-2 py-2"></th>
         </tr></thead>
-        <tbody class="agent-rows"><tr><td colspan="6" class="px-3 py-3 text-slate-400">loading…</td></tr></tbody>
+        <tbody class="agent-rows"><tr><td colspan="6" class="px-3 py-3 text-slate-400">načítání…</td></tr></tbody>
       </table>
     </div>
     <p class="agents-note text-[11px] text-slate-400 mt-2">NOTE</p>
@@ -78,250 +475,950 @@ AGENT_TABLE = r"""
   </section>"""
 
 
-PAGE = r"""<!DOCTYPE html><html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agents Monitoring</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
-<script src="/static/tailwind.js"></script>
-<style>.bar{transition:opacity .15s ease}.bar:hover{opacity:.65}.copied-flash{color:#059669!important;transition:color .1s}#toast{transition:opacity .2s ease}.agent-rows td{overflow:hidden}.sid{display:block;overflow:hidden;text-overflow:ellipsis}</style>
-</head><body class="bg-slate-50 text-slate-800 antialiased">
-<div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50">&nbsp;</div>
-<div id="app" class="mx-auto px-5 py-6" style="max-width:850px">
-AGENT_TABLES
-  <div id="services"></div>
-  <p class="text-center text-[11px] text-slate-300" id="footer">auto-refresh</p>
-</div>
-
-<template id="svc-tpl">
-  <section class="mb-6">
-    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">
-      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0"></span>
-      <h2 class="svc-name text-base font-semibold"></h2>
-      <span class="svc-state ml-auto text-sm font-medium text-slate-400">loading…</span>
-      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="collapse / expand">▾</span>
+QUOTA_SECTION = r"""<template id="quota-table-tpl">
+  <section class="mb-6 quota-section" data-svc="plugin">
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
+      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
+      <h2 class="text-base font-semibold">Kvóty</h2>
+      <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
+      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
     <div class="svc-body">
-    <div class="grid grid-cols-3 gap-3 mb-3">
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-400">Uptime</p>
-        <p class="m-uptime text-lg font-semibold mt-0.5">–</p>
-        <p class="text-[11px] text-slate-400">since first check or last outage</p>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-400">Availability</p>
-        <p class="m-sla text-lg font-semibold mt-0.5">–</p>
-        <p class="m-sla-sub text-[11px] text-slate-400">SLA</p>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="m-x-label text-[11px] uppercase tracking-wide text-slate-400">Latency</p>
-        <p class="m-x text-lg font-semibold mt-0.5">–</p>
-        <p class="m-x-sub text-[11px] text-slate-400">health check</p>
-      </div>
-    </div>
-    <div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-3" hidden>
-      <table class="w-full text-sm" style="table-layout:fixed;min-width:680px"><colgroup><col style="width:24%"><col style="width:30%"><col style="width:12%"><col style="width:12%"><col style="width:22%"></colgroup><thead>
-        <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
-          <th class="text-left font-medium px-2 py-2">Check</th>
-          <th class="rows-value-label text-left font-medium px-2 py-2">Address</th>
-          <th class="text-left font-medium px-2 py-2">Latency</th>
-          <th class="text-left font-medium px-2 py-2">Uptime</th>
-          <th class="text-left font-medium px-2 py-2">Status</th>
-        </tr></thead>
-        <tbody class="svc-rows"></tbody>
-      </table>
-    </div>
-    <div class="rounded-lg border border-slate-200 bg-white p-4">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="text-xs font-semibold text-slate-500">Availability History</h3>
-        <span class="svc-tl-window text-[11px] text-slate-400"></span>
-      </div>
-      <div class="svc-timeline flex items-end gap-[2px] h-8"></div>
-      <div class="flex items-center justify-between mt-2 text-[11px] text-slate-400">
-        <span class="svc-tl-start"></span>
-        <div class="flex items-center gap-3">
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500"></span>Operational</span>
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500"></span>Outage</span>
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200"></span>No data</span>
-        </div>
-        <span>now</span>
-      </div>
-    </div>
+      <ul class="quota-cards" role="list"></ul>
+      <details class="pod qc-note mt-1" data-key="quota-note" hidden><summary>Poznámka ke kvótám</summary><p class="pod-body agents-note" style="list-style:none;padding-left:0"></p></details>
     </div>
   </section>
-</template>
+</template>"""
 
+
+QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul></div></div></section>'
+
+
+PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Monitorování agentů</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+<script src="/static/tailwind.js"></script>
+<style>
+:root{--gap:0.75rem;--touch:44px}
+.bar{transition:opacity .15s ease}.bar:hover{opacity:.65}
+.copied-flash{color:#059669!important;transition:color .1s}
+#toast{transition:opacity .2s ease}
+.agent-rows td{overflow:hidden;vertical-align:middle}
+.sid{display:block;overflow:hidden;text-overflow:ellipsis}
+.sid-btn{display:inline-flex;align-items:center;justify-content:center;min-width:var(--touch);min-height:36px;padding:6px;border-radius:6px;color:#64748b}
+.sid-btn:hover,.sid-btn:focus-visible{color:#0284c7;background:#f1f5f9;outline:2px solid #38bdf8;outline-offset:1px}
+.sid-btn.sid-muted{color:#94a3b8;cursor:default}
+.quota-stack{display:flex;flex-direction:column;gap:4px;min-width:0;max-width:100%}
+.quota-row{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:1.25}
+.quota-gauge{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;padding:2px 4px;margin:-2px -4px;border-radius:6px;border:0;background:transparent;cursor:help;font:inherit;color:inherit;text-align:left}
+.quota-gauge:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.quota-gauge[aria-expanded="true"]{background:#f1f5f9}
+.quota-name{flex:0 0 auto;min-width:1.75rem;color:#475569;font-weight:600}
+.reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle}
+.reset-pill:hover{background:#fef3c7;border-color:#f59e0b}
+.quota-until{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.resets-sum{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-height:var(--touch);cursor:pointer;list-style:none}
+.resets-sum::-webkit-details-marker{display:none}
+.resets-sum::after{content:"▸";margin-left:auto;font-size:12px;color:#94a3b8}
+.resets-details[open] .resets-sum::after{content:"▾"}
+.resets-details[open] .resets-sum{margin-bottom:.25rem}
+.resets-sum:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.resets-extra .exh{color:#be123c;font-weight:700}
+.resets-list{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:0;padding:0}
+.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:11px;line-height:1.25}
+.reset-chip .reset-when{font-weight:700;font-size:12px;color:#0f172a;font-variant-numeric:tabular-nums}
+.reset-chip .reset-what{color:#334155;font-weight:600}
+.reset-chip .reset-meta{color:#64748b}
+.reset-chip.exhausted{border-color:#fda4af;background:#fff1f2}
+.reset-chip.exhausted .reset-when{color:#be123c}
+.reset-chip .reset-fc{color:#64748b;font-style:italic}
+.reset-chip .reset-fc.warn{color:#b45309;font-weight:600;font-style:normal}
+.reset-chip.will-exhaust{border-color:#fcd34d;background:#fffbeb}
+.quota-track{flex:1 1 3.5rem;min-width:2.5rem;max-width:5.5rem;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}
+.quota-fill{display:block;height:100%;border-radius:999px}
+.quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
+.quota-reset{flex:0 0 auto;color:#64748b;font-variant-numeric:tabular-nums}
+.quota-state{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.quota-state.ok{color:#059669}.quota-state.stale{color:#d97706}.quota-state.unavail{color:#94a3b8}
+.quota-tip{display:none;position:absolute;z-index:40;max-width:min(22rem,calc(100vw - 1.5rem));padding:8px 10px;border-radius:8px;background:#0f172a;color:#f8fafc;font-size:12px;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.25);white-space:normal;word-break:break-word}
+.quota-tip.open{display:block}
+.quota-wrap{position:relative;display:inline-block;max-width:100%}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.agent-act{min-width:var(--touch);min-height:36px;justify-content:center}
+.who{font-size:12px;color:#475569;border:1px solid #e2e8f0;border-radius:9999px;padding:1px 8px;background:#fff}
+.who:empty{display:none}
+.viewer-lock .agent-act{cursor:not-allowed;opacity:.45}
+.svc-head{min-height:var(--touch);cursor:pointer}
+.svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.svc-head h2{pointer-events:none}
+.scroll-hint{display:none}
+.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:11px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
+a.work-link:hover,a.work-link:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
+.work-link.blocked{border-color:#fcd34d;background:#fffbeb;color:#92400e}.work-link.awaiting_pickup{border-color:#ddd6fe;background:#f5f3ff;color:#5b21b6}
+.st-wait{color:#b45309;font-weight:600}.wait-ico{flex:0 0 auto;font-size:12px;line-height:1}
+.row-wait>td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
+.acct-chip{display:inline-flex;align-items:center;gap:.3rem;min-height:var(--touch);max-width:100%;padding:0 .6rem;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;font-weight:600;white-space:nowrap;text-decoration:none}
+a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
+.acct-chip .acct-name{overflow:hidden;text-overflow:ellipsis;max-width:11rem}
+.acct-chip .acct-win{font-variant-numeric:tabular-nums}
+.acct-chip.warn{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+.acct-chip.err{border-color:#fda4af;background:#fff1f2;color:#be123c}
+.quota-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr));gap:.75rem;list-style:none;margin:0;padding:0}
+.quota-card{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.65rem .8rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;scroll-margin:1rem;transition:box-shadow .3s ease}
+.quota-card.exhausted{border-color:#fda4af}
+.quota-card.flash{box-shadow:0 0 0 3px #38bdf8}
+.quota-card:focus{outline:none}
+.qc-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.qc-name{font-weight:600;font-size:14px}
+.qc-users{font-size:11px;color:#64748b;margin:0}
+.qc-exh{font-size:11px;font-weight:700;color:#be123c}
+.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
+.fresh.ok{background:#ecfdf5;color:#047857}.fresh.stale{background:#fffbeb;color:#b45309}.fresh.unavail{background:#f1f5f9;color:#475569}
+.qc-wins{display:flex;flex-direction:column;gap:.35rem}
+.qc-win{display:flex;flex-wrap:wrap;align-items:center;column-gap:.45rem;row-gap:1px;font-size:12px;min-width:0}
+.win-type{flex:0 0 3.2rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.win-label{flex:0 1 6.5rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;font-weight:600}
+.qc-win .quota-track{flex:1 1 4rem;max-width:none}
+.qc-win .quota-pct{min-width:5.2rem}
+.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:11px}
+.win-fc{color:#64748b;font-style:italic}.win-fc.warn{color:#b45309;font-weight:600;font-style:normal}
+.qc-actions{display:flex;flex-wrap:wrap;gap:.4rem}
+.qc-actions .reset-pill{min-height:var(--touch);margin:0}
+.pod{font-size:12px;color:#475569;white-space:normal}
+.pod>summary{min-height:var(--touch);line-height:var(--touch);cursor:pointer;color:#0369a1;font-weight:600;width:max-content}
+.pod>summary:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.pod-body{margin:.1rem 0 .3rem;padding-left:1.1rem;list-style:disc;line-height:1.4;word-break:break-word;max-width:48rem}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:1rem}
+.toolbar button{min-height:var(--touch);min-width:var(--touch);padding:0 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:13px}
+.toolbar button:hover,.toolbar button:focus-visible{border-color:#94a3b8;outline:2px solid #38bdf8;outline-offset:1px}
+.toolbar button[aria-pressed="true"]{background:#f1f5f9;font-weight:600}
+#app{max-width:min(1480px,100%);padding-left:max(1rem,env(safe-area-inset-left));padding-right:max(1rem,env(safe-area-inset-right))}
+.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0.75rem}
+@media (max-width:640px){
+  .metric-grid{grid-template-columns:1fr}
+  .quota-row{flex-wrap:wrap}
+  .quota-gauge{flex-wrap:wrap;width:100%}
+  .quota-track{flex:1 1 100%;max-width:none}
+  th,td{font-size:12px}
+  .scroll-hint{display:block}
+}
+@media (min-width:1440px){
+  .quota-track{max-width:7rem}
+}
+.layout{display:block}
+.col-main,.col-side{min-width:0}
+@media (min-width:1280px){
+  .layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:1.25rem;align-items:start}
+}
+.svc-list{list-style:none;margin:0;padding:0;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff}
+.svc-item{padding:.25rem .75rem;border-top:1px solid #f1f5f9;scroll-margin:1rem;min-width:0}
+.svc-item:first-child{border-top:0}
+.svc-row{display:flex;flex-wrap:wrap;align-items:center;gap:.1rem .6rem;min-height:var(--touch);font-size:13px}
+.svc-ico{flex:0 0 1.2rem;text-align:center;font-weight:700}
+.svc-nm{flex:1 1 10rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.svc-st{font-size:12px;font-weight:600;white-space:nowrap}
+.svc-lat{font-size:12px;color:#64748b;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:4.5rem;text-align:right}
+.svc-note{font-size:12px;color:#64748b;margin:0 0 .25rem 1.8rem;overflow-wrap:anywhere}
+.svc-more{margin-left:1.8rem;min-width:0}
+.svc-more>summary{min-height:2.25rem;line-height:2.25rem}
+@media (max-width:639px){.svc-more,.svc-note{margin-left:0}.svc-more>summary{min-height:var(--touch);line-height:var(--touch)}.svc-lat{min-width:0}}
+@media (prefers-reduced-motion:reduce){
+  .bar,#toast,.copied-flash{transition:none!important}
+}
+.ovr{display:inline-flex;align-items:center;gap:.35rem;min-height:2rem;padding:0 .7rem;border:1px solid #e2e8f0;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;background:#fff;color:#475569}
+.ovr.ok{border-color:#a7f3d0;background:#ecfdf5;color:#047857}.ovr.warning{border-color:#fcd34d;background:#fffbeb;color:#92400e}.ovr.critical{border-color:#fda4af;background:#fff1f2;color:#be123c}
+.attn{border:1px solid #fcd34d;border-radius:.5rem;background:#fffbeb;padding:.5rem .75rem}
+.attn.critical{border-color:#fda4af;background:#fff1f2}
+.attn h2{font-size:15px;font-weight:600;margin:0 0 .25rem}
+.attn-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.attn-item{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .6rem;min-height:var(--touch);border-top:1px solid rgba(148,163,184,.3);font-size:13px}
+.attn-item:first-child{border-top:0}
+.attn-ico{flex:0 0 1.4rem;text-align:center;font-weight:700}
+.attn-item.critical .attn-ico{color:#be123c}.attn-item.warning .attn-ico{color:#b45309}.attn-item.info .attn-ico{color:#0369a1}
+.attn-text{flex:1 1 16rem;min-width:0;word-break:break-word;color:#334155}
+.attn-link,.q-link{display:inline-flex;align-items:center;min-height:var(--touch);color:#0369a1;font-weight:600;text-decoration:none}
+.attn-link:hover,.attn-link:focus-visible,.q-link:hover,.q-link:focus-visible{text-decoration:underline;outline-offset:1px}
+.attn-item .reset-pill{min-height:var(--touch);margin:0}
+.q-bar{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .4rem;margin-bottom:.5rem}
+.q-ctr{min-height:var(--touch);padding:0 .55rem;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+.q-ctr[aria-pressed="true"]{background:#e0f2fe;border-color:#38bdf8;color:#075985}
+.q-ctr.bad{color:#be123c;border-color:#fda4af}.q-ctr.warn{color:#92400e;border-color:#fcd34d}
+.q-ctr:focus-visible,.q-tab:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.q-sep{color:#94a3b8;font-size:12px}
+.q-gh{margin-left:auto}
+.q-tabs{display:flex;flex-wrap:wrap;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
+.q-tab{min-height:var(--touch);padding:0 .7rem;border:0;border-bottom:2px solid transparent;background:transparent;color:#475569;font-size:13px;font-weight:600}
+.q-tab[aria-selected="true"]{border-bottom-color:#0284c7;color:#0369a1}
+.q-note{margin:.25rem 0 .5rem;padding:.4rem .6rem;border:1px solid #fcd34d;border-radius:.4rem;background:#fffbeb;color:#92400e;font-size:12px}
+.q-list{list-style:none;margin:0;padding:0;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff}
+.q-item{display:grid;grid-template-columns:3.5rem minmax(0,1fr) 9rem 8rem 8.5rem 5.5rem;align-items:center;gap:.25rem .6rem;padding:.3rem .7rem;border-top:1px solid #f1f5f9;font-size:13px}
+.q-item:first-child{border-top:0}
+.q-empty{padding:.75rem;color:#94a3b8;font-size:13px}
+.q-num{font-variant-numeric:tabular-nums;font-weight:600}
+.q-title{display:flex;align-items:center;gap:.35rem;min-width:0}
+.q-title a,.q-title .q-tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:#0f172a;text-decoration:none}
+.q-title a:hover,.q-title a:focus-visible{text-decoration:underline;color:#0369a1}
+.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:700;cursor:help}
+.q-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .5rem;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;width:max-content}
+.q-badge.running{background:#e0f2fe;color:#075985}.q-badge.queued{background:#f1f5f9;color:#334155}
+.q-badge.awaiting_pickup{background:#ede9fe;color:#5b21b6}.q-badge.blocked{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
+.q-badge.failed{background:#fff1f2;color:#be123c;border:1px solid #fda4af}.q-badge.done{background:#ecfdf5;color:#047857}
+.q-who,.q-age{color:#64748b;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q-age{font-variant-numeric:tabular-nums}
+.q-pr{display:flex;align-items:center;gap:.3rem;font-size:12px;white-space:nowrap}
+.ci{font-weight:700}.ci.success{color:#059669}.ci.failure{color:#be123c}.ci.pending{color:#b45309}
+.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase}
+.q-extra{grid-column:2 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 .75rem;font-size:12px;color:#64748b}
+.q-extra .pod>summary{min-height:2rem;line-height:2rem}
+@media (max-width:639px){
+  .q-list{border:0;background:transparent;display:flex;flex-direction:column;gap:.5rem}
+  .q-item{display:flex;flex-wrap:wrap;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;padding:.5rem .7rem}
+  .q-item:first-child{border-top:1px solid #e2e8f0}
+  .q-title{flex:1 1 calc(100% - 4rem)}
+  .q-title a,.q-num a,.q-pr a{min-height:var(--touch);display:inline-flex;align-items:center}
+  .q-extra .pod>summary{min-height:var(--touch);line-height:var(--touch)}
+  .q-gh{margin-left:0}
+}
+@media (prefers-color-scheme:dark){
+  .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}.ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
+  .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}.ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
+  .attn{background:rgba(120,53,15,.25);border-color:#b45309}.attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
+  .attn-text{color:#e2e8f0}.attn-link,.q-link{color:#38bdf8}
+  .attn-item.critical .attn-ico{color:#fda4af}.attn-item.warning .attn-ico{color:#fcd34d}.attn-item.info .attn-ico{color:#7dd3fc}
+  .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}.q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
+  .q-ctr.bad{color:#fda4af;border-color:#9f1239}.q-ctr.warn{color:#fcd34d;border-color:#b45309}
+  .q-tabs{border-color:#1e293b}.q-tab{color:#94a3b8}.q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
+  .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
+  .q-list{background:#0f172a;border-color:#1e293b}.q-item{border-color:#1e293b}
+  .q-title a,.q-title .q-tt{color:#e2e8f0}.q-title a:hover{color:#38bdf8}
+  .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}.q-badge.queued{background:#1e293b;color:#cbd5e1}
+  .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}.q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
+  .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}.q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
+  .q-who,.q-age,.q-extra{color:#94a3b8}.ci.success{color:#34d399}.ci.failure{color:#fb7185}.ci.pending{color:#fbbf24}
+  .q-draft{border-color:#475569;color:#94a3b8}
+  @media (max-width:639px){.q-list{background:transparent}.q-item{background:#0f172a;border-color:#1e293b}.q-item:first-child{border-top-color:#1e293b}}
+  body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
+  .bg-white{background-color:#0f172a!important}
+  .bg-slate-50{background-color:#020617!important}
+  .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
+  .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
+  .bg-amber-50{background-color:rgba(120,53,15,.3)!important}.border-amber-200{border-color:#92400e!important}
+  .border-slate-200,.border-slate-100{border-color:#1e293b!important}
+  .border-emerald-200{border-color:#065f46!important}
+  .border-rose-200{border-color:#9f1239!important}
+  .text-slate-800,.text-slate-700{color:#e2e8f0!important}
+  .text-slate-600,.text-slate-500{color:#94a3b8!important}
+  .text-slate-400,.text-slate-300{color:#64748b!important}
+  .bg-slate-200,.bg-slate-300{background-color:#334155!important}
+  .bg-orange-100{background-color:rgba(154,52,18,.4)!important}.text-orange-700{color:#fdba74!important}
+  .bg-emerald-100{background-color:rgba(6,95,70,.4)!important}.text-emerald-700{color:#6ee7b7!important}
+  .bg-violet-100{background-color:rgba(91,33,182,.4)!important}.text-violet-700{color:#c4b5fd!important}
+  .bg-amber-100{background-color:rgba(146,64,14,.4)!important}.text-amber-700{color:#fcd34d!important}
+  .bg-rose-100{background-color:rgba(159,18,57,.4)!important}.text-rose-700{color:#fda4af!important}
+  .bg-slate-100{background-color:rgba(51,65,85,.55)!important}
+  .bg-sky-100{background-color:rgba(7,89,133,.4)!important}
+  .text-emerald-600{color:#34d399!important}.text-amber-600{color:#fbbf24!important}
+  .text-rose-600{color:#fb7185!important}.text-sky-600{color:#38bdf8!important}
+  .hover\:bg-slate-100:hover{background-color:#1e293b!important}
+  .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
+  .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
+  .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
+  .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .resets-extra .exh{color:#fda4af}
+  .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
+  .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
+  .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
+  .reset-chip .reset-fc{color:#94a3b8}.reset-chip .reset-fc.warn{color:#fbbf24}
+  .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
+  .quota-state.unavail{color:#64748b}
+  .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+  .svc-list{background:#0f172a;border-color:#1e293b}.svc-item{border-color:#1e293b}.svc-lat,.svc-note{color:#94a3b8}
+  .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}.work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}.st-wait{color:#fbbf24}
+  .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
+  .quota-card{background:#0f172a;border-color:#1e293b}.quota-card.exhausted{border-color:#9f1239}
+  .qc-users,.win-type,.win-fc{color:#94a3b8}.win-label{color:#cbd5e1}.qc-exh{color:#fda4af}
+  .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}.fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}.fresh.unavail{background:#1e293b;color:#94a3b8}
+  .pod{color:#94a3b8}.pod>summary{color:#38bdf8}
+  .quota-gauge[aria-expanded="true"]{background:#1e293b}
+  .quota-tip{background:#e2e8f0;color:#0f172a}
+  .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
+  #toast{background:#e2e8f0!important;color:#0f172a!important}
+}
+</style>
+</head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
+<div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
+<div id="app" class="mx-auto px-5 py-6">
+  <header class="mb-4">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
+      <span id="overall-pill" class="ovr" title="Celkový stav">načítání…</span>
+      <span id="whoami" class="who" title="Přihlášený uživatel · role">__AGENTSMON_WHO__</span>
+    </div>
+    <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, fronty práce, kvót poskytovatelů a dostupnosti služeb.</p>
+  </header>
+  <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
+    <h2 id="attn-h">Vyžaduje pozornost</h2>
+    <ul class="attn-list" role="list"></ul>
+    <p class="attn-more text-[11px] text-slate-500" hidden></p>
+  </section>
+  <div class="toolbar" role="toolbar" aria-label="Ovládání dashboardu">
+    <button type="button" id="btn-refresh" title="Obnovit teď">Obnovit</button>
+    <button type="button" id="btn-pause" aria-pressed="false" title="Pozastavit automatickou obnovu">Pozastavit obnovu</button>
+  </div>
+<div class="layout">
+<div class="col-main">
+AGENT_TABLES_MAIN
+</div>
+<div class="col-side">
+AGENT_TABLES_SIDE
+  <section id="services" class="mb-6 svc-section" data-svc="services" hidden aria-label="Služby">
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
+      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
+      <h2 class="text-base font-semibold">Služby</h2>
+      <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
+      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
+    </div>
+    <div class="svc-body"><ul class="svc-list" role="list"></ul></div>
+  </section>
+</div>
+</div>
+  <p class="text-center text-[11px] text-slate-300" id="footer">automatická obnova</p>
+</div>
+AGENT_TABLES_TEMPLATES
 <script>
 const STATE = {
-  operational: ["bg-emerald-500", "Operational", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
-  outage:      ["bg-rose-500", "Outage", "text-rose-600", "bg-rose-50 border-rose-200"],
-  nodata:      ["bg-slate-300", "No data / not running", "text-slate-400", "bg-white border-slate-200"],
+  operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
+  outage:      ["bg-rose-500", "Výpadek", "text-rose-600", "bg-rose-50 border-rose-200"],
+  nodata:      ["bg-slate-300", "Bez dat / neběží", "text-slate-400", "bg-white border-slate-200"],
+  stale:       ["bg-amber-400", "Zastaralá data", "text-amber-600", "bg-amber-50 border-amber-200"],
 };
 const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emerald-100 text-emerald-700",
   "google":"bg-violet-100 text-violet-700", "gold":"bg-amber-100 text-amber-700",
-  "red":"bg-rose-100 text-rose-700", "other":"bg-slate-100 text-slate-600" };
-// Optional background highlight behind the agent NAME (like the model tags), text stays normal.
+  "red":"bg-rose-100 text-rose-700", "cursor":"bg-sky-100 text-sky-700",
+  "other":"bg-slate-100 text-slate-600" };
 const NAME_BG = { "red":"bg-rose-100", "gold":"bg-amber-100", "green":"bg-emerald-100", "blue":"bg-sky-100" };
+const LOCALE="cs-CZ";
+const ROLE=document.body.dataset.role||"admin";   // server-rendered; the server enforces it anyway
+const VIEWER_TIP="Akce smí spouštět jen správce (vaše role: čtenář)";
+const SERVICE_LABELS={
+  "Multi-Agent System Availability":"Dostupnost multiagentního systému",
+  "Multi-agent system availability":"Dostupnost multiagentního systému",
+  "Telegram Bridge":"Telegram most",
+  "LANA Hermes Telegram Lane":"LANA Hermes Telegram lane",
+};
+function serviceDisplayName(name){return SERVICE_LABELS[name]||name;}
 function fmtDuration(s){if(s==null)return "–";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
-  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`;}
-function fmtTime(u){return u?new Date(u*1000).toLocaleString():"";}
+  return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;}
+function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE):"";}
 function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
-
-function renderTimeline(root, buckets, windowDays){
-  const tl=q(root,".svc-timeline"); tl.innerHTML=""; const GREEN=98;
-  buckets.forEach(b=>{
-    const el=document.createElement("div"); let cls,status;
-    if(b.uptime_pct==null){cls="bg-slate-200";status="no data";}
-    else if(b.uptime_pct>=GREEN){cls="bg-emerald-500";status=`${b.uptime_pct}% uptime`;}
-    else{cls="bg-rose-500";status=`outage (${b.uptime_pct}% uptime)`;}
-    el.className="bar flex-1 rounded-sm h-full "+cls;
-    el.title=`${new Date(b.start*1000).toLocaleDateString()} · ${status}`;
-    tl.appendChild(el);
+let paused=false, pollTimer=null;
+let tipSeq=0, TIP_NS="g";   // tooltip ids: per-row namespace + counter → stable across polls
+let clockSkew=0;   // server time − browser time, so countdowns follow the host clock
+function nowSec(){ return Date.now()/1000+clockSkew; }
+function fmtIn(sec){
+  sec=Math.max(0,Math.round(sec));
+  if(sec<60) return "méně než minuta";
+  const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  if(d) return `${d} d ${h} h`;
+  if(h) return `${h} h ${m} min`;
+  return `${m} min`;
+}
+function fmtShort(sec){
+  sec=Math.max(0,Math.round(sec));
+  const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  return d?`${d}d${h}h`:h?`${h}h${String(m).padStart(2,"0")}`:`${Math.max(1,m)}m`;
+}
+function untilTxt(ts){ const s=ts-nowSec(); return s<=0?"probíhá reset…":"za "+fmtIn(s); }
+function tickResets(){
+  document.querySelectorAll("[data-reset-at]").forEach(el=>{
+    const ts=Number(el.dataset.resetAt); if(!isFinite(ts)) return;
+    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":fmtShort(ts-nowSec()));
+    else el.textContent=(el.dataset.resetLabel?`reset ${el.dataset.resetLabel} · `:"")+untilTxt(ts);
   });
-  q(root,".svc-tl-window").textContent="last "+windowDays+" days";
-  if(buckets.length) q(root,".svc-tl-start").textContent=new Date(buckets[0].start*1000).toLocaleDateString();
 }
-function renderService(root, s){
-  const st=STATE[s.state]||STATE.nodata;
-  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+st[3];
-  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+st[0];
-  const se=q(root,".svc-state"); se.textContent=st[1]; se.className="svc-state ml-auto text-sm font-medium "+st[2];
-  q(root,".m-uptime").textContent=fmtDuration(s.uptime_seconds);
-  q(root,".m-sla").textContent=s.sla!=null?s.sla.toFixed(2)+" %":"–";
-  q(root,".m-sla-sub").textContent="over "+s.sla_window_days+" days ("+(s.sla_samples||0)+" samples)";
-  if(s.metric==="agents"){
-    q(root,".m-x-label").textContent="Agents";
-    q(root,".m-x").textContent=(s.metric_value!=null?s.metric_value:"–")+(s.metric_value!=null?" running":"");
-    q(root,".m-x-sub").textContent="live in tmux";
-  }else if(s.metric==="system_latency"){
-    q(root,".m-x-label").textContent="Avg latency";
-    q(root,".m-x").textContent=fmtLat(s.system_latency_ms);
-    q(root,".m-x-sub").textContent=(s.system_latency_n||0)+" source"+(s.system_latency_n===1?"":"s");
-  }else if(s.metric==="avg_latency"){
-    q(root,".m-x-label").textContent="Avg latency";
-    q(root,".m-x").textContent=fmtLat(s.avg_latency_ms);
-    q(root,".m-x-sub").textContent="over "+s.sla_window_days+" days";
-  }else{
-    q(root,".m-x-label").textContent="Latency";
-    q(root,".m-x").textContent=fmtLat(s.latency_ms);
-    q(root,".m-x-sub").textContent=s.metric_sub||"health check";
+setInterval(tickResets, 30000);
+// Burn-rate forecast (server: agentsmon/quota.py) → short Czech phrase, "" when unknown.
+function fcClock(ts){
+  const d=new Date(ts*1000), n=new Date(nowSec()*1000);
+  const hm=d.toLocaleTimeString(LOCALE,{hour:"2-digit",minute:"2-digit"});
+  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{day:"numeric",month:"numeric"})+" "+hm;
+}
+function fcText(f){
+  if(!f) return "";
+  if(f.will_exhaust_before_reset&&f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)} (před resetem)`;
+  if(f.projected_at_reset!=null) return `při resetu ~${Math.round(Number(f.projected_at_reset))} %`;
+  if(f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)}`;
+  return "";
+}
+function initResetsPanel(){
+  // Collapsed by default on phones (<640px), open on larger screens; the user's choice sticks.
+  const d=document.querySelector("#resets-panel .resets-details"); if(!d) return;
+  let v=null; try{ v=localStorage.getItem(collapseKey("resets")); }catch(e){}
+  d.open=v==null?!(window.matchMedia&&window.matchMedia("(max-width:639px)").matches):v==="0";
+}
+document.addEventListener("click",e=>{
+  const s=e.target.closest("#resets-panel summary"); if(!s) return;
+  const d=s.parentElement;
+  setTimeout(()=>{ try{ localStorage.setItem(collapseKey("resets"), d.open?"0":"1"); }catch(_){} },0);
+});
+function renderResets(list){
+  const box=document.getElementById("resets-panel"); if(!box) return;
+  const items=list||[]; box.hidden=!items.length;
+  if(items.length){
+    const n=items[0], ex=items.filter(e=>e.exhausted);
+    setHTML(box.querySelector(".resets-next"),`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
+    setHTML(box.querySelector(".resets-extra"),
+      (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
+      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`);
   }
-  renderTimeline(root, s.timeline, s.timeline_days);
-  renderRows(root, s.rows||[], s.row_details===true);
+  setHTML(box.querySelector(".resets-list"),items.map(e=>{
+    const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
+    const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
+    const fc=e.exhausted?"":fcText(e.forecast);
+    const warn=!!(fc&&e.forecast&&e.forecast.will_exhaust_before_reset);
+    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||""),fc].filter(Boolean).join(" · ");
+    return `<li class="reset-chip${e.exhausted?" exhausted":warn?" will-exhaust":""}" title="${esc(tip)}">`+
+      `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
+      `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
+      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
+      (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
+  }).join(""));
 }
-// Module rows (one website / tunnel / db per line) — same shape as the agent tables.
+
+const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
+function timelineHtml(buckets, windowDays){
+  const GREEN=98;
+  const bars=(buckets||[]).map(b=>{
+    let cls,status;
+    if(b.uptime_pct==null){cls="bg-slate-200";status="bez dat";}
+    else if(b.uptime_pct>=GREEN){cls="bg-emerald-500";status=`${b.uptime_pct} % dostupnost`;}
+    else{cls="bg-rose-500";status=`výpadek (${b.uptime_pct} % dostupnost)`;}
+    return `<div class="bar flex-1 rounded-sm h-full ${cls}" title="${esc(new Date(b.start*1000).toLocaleDateString(LOCALE)+" · "+status)}"></div>`;
+  }).join("");
+  const start=(buckets&&buckets.length)?new Date(buckets[0].start*1000).toLocaleDateString(LOCALE):"";
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
+    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-[11px] text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
+    `<div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti za posledních ${esc(windowDays)} dní">${bars}</div>`+
+    `<div class="flex items-center justify-between mt-2 text-[11px] text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
+    `<div class="flex items-center gap-3 flex-wrap"><span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>`+
+    `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>`+
+    `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span></div><span>teď</span></div></div>`;
+}
+function svcMetric(s){
+  if(s.metric==="agents") return {label:"Agenti",value:s.metric_value!=null?s.metric_value+" běží":"–",sub:"živě v tmux"};
+  if(s.metric==="system_latency") return {label:"Průměrná latence",value:fmtLat(s.system_latency_ms),sub:(s.system_latency_n||0)+" zdroj"+(s.system_latency_n===1?"":"ů")};
+  if(s.metric==="avg_latency") return {label:"Průměrná latence",value:fmtLat(s.avg_latency_ms),sub:"za "+s.sla_window_days+" dní"};
+  return {label:"Latence",value:fmtLat(s.latency_ms),sub:s.metric_sub||"kontrola zdraví"};
+}
+function metricTile(label,value,sub){
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-[11px] uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
+    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-[11px] text-slate-400">${esc(sub)}</p></div>`;
+}
+// One compact list row per service: icon + name + state + latency; history & metric tiles behind a disclosure.
+function serviceItem(s, root=null){
+  const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
+  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+(s.detail||"");
+  const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
+      `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
+      `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
+      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span></div>`+
+    (note?`<p class="svc-note">${esc(note)}</p>`:"")+
+    `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
+      `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
+      `${metricTile("Dostupnost",s.sla!=null?s.sla.toFixed(2)+" %":"–","za "+s.sla_window_days+" dní ("+(s.sla_samples||0)+" vzorků)")}`+
+      `${metricTile(m.label,m.value,m.sub)}</div>`+
+      renderRows(root, s.rows||[], s.row_details===true)+
+      timelineHtml(s.timeline, s.timeline_days)+
+    `</details>`;
+  return {key:s.name, cls:"svc-item", attrs:{id:s.anchor||null}, html};
+}
+function renderServices(list){
+  const root=document.getElementById("services"); if(!root) return;
+  root.hidden=!list.length; if(!list.length) return;
+  initCollapse(root,"services",1);
+  const bad=list.filter(s=>s.state==="outage").length, stale=list.filter(s=>s.state==="stale").length;
+  const ok=list.filter(s=>s.state==="operational").length;
+  const look=bad?STATE.outage:stale?STATE.stale:ok?STATE.operational:STATE.nodata;
+  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  cnt.textContent=`${ok}/${list.length} v provozu`;
+  const ul=q(root,".svc-list");
+  patchRows(ul, list.map(s=>serviceItem(s)), "li");
+}
 function renderRows(root, rows, details=false){
-  const wrap=q(root,".svc-rows-wrap"); if(!wrap) return;
-  wrap.hidden=!rows.length; if(!rows.length) return;
-  q(root,".rows-value-label").textContent=details?"Detail":"Address";
-  const tb=q(root,".svc-rows");
-  tb.innerHTML=rows.map(r=>{
+  // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
+  if(!rows.length) return "";
+  return `<div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-2"><table class="w-full text-sm"><thead>`+
+    `<tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
+    `<th class="rows-value-label text-left font-medium px-2 py-2">${details?"Detail":"Adresa"}</th><th class="text-left font-medium px-2 py-2">Latence</th>`+
+    `<th class="text-left font-medium px-2 py-2">Běh</th><th class="text-left font-medium px-2 py-2">Stav</th></tr></thead><tbody class="svc-rows">`+
+  rows.map(r=>{
     const st=STATE[r.state]||STATE.nodata;
     const addr=r.url?r.url.replace(/^https?:\/\//,"").replace(/\/$/,""):"";
-    const sla=r.sla!=null?` · ${r.sla.toFixed(2)} % / ${r.sla_samples||0} samples`:"";
+    const staleTip=r.stale?`zastaralá data: poslední před ${fmtDuration(r.data_age)} · `:"";
+    const sla=r.sla!=null?` · ${r.sla.toFixed(2)} % / ${r.sla_samples||0} vzorků`:"";
     return `<tr class="border-b border-slate-100 last:border-0">`+
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${esc(r.name)}</td>`+
       `<td class="px-2 py-1.5"><span class="text-xs text-slate-500 ${details?'break-words':'font-mono whitespace-nowrap'}">${esc(details?(r.detail||''):addr)}</span></td>`+
       `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap">${fmtLat(r.latency_ms)}</td>`+
-      `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap" title="time since the last real outage${esc(sla)}">${fmtDuration(r.uptime_seconds)}</td>`+
-      `<td class="px-2 py-1.5" title="${esc(r.detail||"")}${r.last_ts?" · "+esc(fmtTime(r.last_ts)):""}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${st[2]}"><span class="h-2 w-2 rounded-full ${st[0]} shrink-0"></span>${st[1]}</span></td>`+
-    `</tr>`;}).join("");
+      `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap" title="čas od posledního skutečného výpadku${esc(sla)}">${fmtDuration(r.uptime_seconds)}</td>`+
+      `<td class="px-2 py-1.5" title="${esc(staleTip)}${esc(r.detail||"")}${r.last_ts?" · "+esc(fmtTime(r.last_ts)):""}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${st[2]}"><span class="h-2 w-2 rounded-full ${st[0]} shrink-0" aria-hidden="true"></span>${st[1]}</span></td>`+
+    `</tr>`;}).join("")+`</tbody></table></div>`;
 }
-function renderCell(cell){
+function quotaStateClass(state){
+  const s=String(state||"").toUpperCase();
+  if(s==="OK") return "ok";
+  if(s==="STALE"||s==="ZASTARALÉ") return "stale";
+  return "unavail";
+}
+function gaugeMetrics(b){
+  const used=Number(b.percent);
+  const state=String(b.state||"").toUpperCase();
+  const remRaw=b.remaining;
+  const remaining=(remRaw==null||remRaw==="")?(isFinite(used)?Math.max(0,Math.min(100,100-used)):null):Number(remRaw);
+  const unavail=state==="UNAVAILABLE"||state==="NEDOSTUPNÉ"||state==="N/A"||remaining==null||!isFinite(used);
+  const remShow=unavail?0:Math.max(0,Math.min(100,remaining));
+  const fillCls=unavail?"bg-slate-300":(used>=90?"bg-rose-500":used>=70?"bg-amber-500":"bg-emerald-500");
+  const pctTxt=unavail?"neznámé":`${Number(Number(remaining).toFixed(1))} % zbývá`;
+  const usedTxt=unavail?"neznámé":`${Number(used.toFixed(1))} % využito`;
+  const reset=b.reset_label?String(b.reset_label):(String(b.title||"").match(/reset\s+([^·|/]+)/i)||[])[1];
+  const resetLabel=reset?String(reset).trim():"";
+  const resetAt=Number(b.reset_at)>0?Number(b.reset_at):null;
+  const resetTxt=reset?`reset ${resetLabel}${resetAt?" · "+untilTxt(resetAt):""}`:"reset —";
+  const fcTxt=(unavail||used>=100)?"":fcText(b.forecast);
+  const tip=[b.title||"", usedTxt, pctTxt, resetTxt, fcTxt, state?`stav ${state}`:"", b.freshness||""].filter(Boolean).join(" · ");
+  const aria=unavail
+    ?`${b.label||"kvóta"}: údaj není dostupný${state?`, ${state}`:""}`
+    :`${b.label||"kvóta"}: zbývá ${remaining} procent, využito ${used} procent${state?`, stav ${state}`:""}`;
+  return {used, state, remaining, unavail, remShow, fillCls, pctTxt, resetTxt, resetLabel, resetAt, tip, aria};
+}
+function placeTip(btn, tip){
+  const r=btn.getBoundingClientRect();
+  const pad=8; const tw=Math.min(352, window.innerWidth-2*pad);
+  let left=Math.min(Math.max(pad, r.left), window.innerWidth-tw-pad);
+  let top=r.bottom+6;
+  tip.style.width=tw+"px";
+  tip.style.left=left+"px";
+  tip.style.top=top+"px";
+  tip.style.position="fixed";
+  requestAnimationFrame(()=>{
+    const tr=tip.getBoundingClientRect();
+    if(tr.bottom>window.innerHeight-pad){
+      tip.style.top=Math.max(pad, r.top-tr.height-6)+"px";
+    }
+    if(tr.right>window.innerWidth-pad){
+      tip.style.left=Math.max(pad, window.innerWidth-tr.width-pad)+"px";
+    }
+  });
+}
+function closeQuotaTips(except){
+  document.querySelectorAll(".quota-tip.open").forEach(t=>{
+    if(except && t===except) return;
+    t.classList.remove("open");
+    const btn=document.querySelector(`[aria-describedby="${t.id}"]`);
+    if(btn) btn.setAttribute("aria-expanded","false");
+  });
+}
+function renderAgentGauge(b){
+  const m=gaugeMetrics(b);
+  const id="qtip-"+TIP_NS+"-"+(++tipSeq);
+  const short=m.unavail?"—":`${Math.round(m.remShow)}%`;
+  return `<span class="quota-wrap">`+
+    `<button type="button" class="quota-gauge" aria-expanded="false" aria-describedby="${id}" title="${esc(m.tip)}" data-quota-tip>`+
+      `<span class="quota-name">${esc(b.label||"")}</span>`+
+      `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+      `<span class="sr-only">${esc(m.aria)}</span>`+
+      `<span aria-hidden="true" class="text-[11px] text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
+      (m.resetAt&&!m.unavail?`<span aria-hidden="true" class="quota-until" data-reset-at="${m.resetAt}" data-short="1">↻ ${esc(fmtShort(m.resetAt-nowSec()))}</span>`:"")+
+    `</button>`+
+    `<span id="${id}" role="tooltip" class="quota-tip">${esc(m.tip)}</span>`+
+  `</span>`;
+}
+function renderQuotaBar(b){
+  const m=gaugeMetrics(b);
+  return `<div class="quota-row" title="${esc(m.tip)}">`+
+    `<span class="quota-name">${esc(b.label||"")}</span>`+
+    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+
+    (m.resetAt?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
+               :`<span class="quota-reset">${esc(m.resetTxt)}</span>`)+
+    (m.state?`<span class="quota-state ${quotaStateClass(m.state)}">${esc(m.state)}</span>`:"")+
+  `</div>`;
+}
+function renderCell(cell, {compact=false}={}){
   if(!cell) return "–";
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
-  const bars=(cell.bars||[]).map(b=>`<div title="${esc(b.title)}" class="mb-1"><span>${esc(b.label)} ${b.percent}%</span><div class="h-1 bg-slate-100 rounded"><div class="h-1 rounded ${b.percent>=90?'bg-rose-500':b.percent>=70?'bg-amber-500':'bg-emerald-500'}" style="width:${b.percent}%"></div></div></div>`).join("");
-  return `<span title="${esc(cell.title)}" class="${tones[cell.tone]||''}">${esc(cell.text)}</span>`+bars;
+  const bars=cell.bars||[];
+  if(bars.length){
+    // Persistent agents: exactly one simple gauge per column (5h / Týden).
+    const shown=compact?bars.slice(0,1):bars;
+    if(compact){
+      return `<div class="quota-stack">${shown.map(renderAgentGauge).join("")}</div>`;
+    }
+    return `<div class="quota-stack" title="${esc(cell.title||"")}">${shown.map(renderQuotaBar).join("")}</div>`;
+  }
+  return `<span title="${esc(cell.title||"")}" class="${tones[cell.tone]||''} whitespace-nowrap text-xs">${esc(cell.text||"–")}</span>`;
 }
-function renderColumns(root,columns){
-  const table=q(root,"table"), head=q(root,"thead tr");
+// ---- Incremental rendering: keyed rows (data-key="r:…") + per-row HTML string diff ----
+// A row's innerHTML is replaced only when its rendered string changed (countdown text excluded, it ticks
+// on its own); focus, open quota tooltips and open <details> (OPEN_DETAILS) survive the 15 s poll.
+const LAST_SIG={};
+function sectionChanged(k,v){ const s=JSON.stringify(v===undefined?null:v); if(LAST_SIG[k]===s) return false; LAST_SIG[k]=s; return true; }
+function cssEsc(s){ return (window.CSS&&CSS.escape)?CSS.escape(String(s)):String(s).replace(/["\\\[\]#.:]/g,"\\$&"); }
+function hashStr(s){ let h=5381; s=String(s); for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
+function normHtml(h){ return String(h).replace(/(data-reset-at="[^"]*"[^>]*>)[^<]*/g,"$1"); }
+function focusSel(a){
+  const d=a.dataset||{};
+  for(const k of ["act","copy","qtab","qfilter","acct","attn"]) if(d[k]!=null) return `[data-${k}="${cssEsc(d[k])}"]`;
+  if(a.id) return "#"+cssEsc(a.id);
+  if(a.tagName==="SUMMARY") return "summary";
+  const href=a.getAttribute&&a.getAttribute("href"); if(href) return `a[href="${cssEsc(href)}"]`;
+  const c=String(a.className||"").split(/\s+/).filter(Boolean)[0];
+  return a.tagName.toLowerCase()+(c?"."+cssEsc(c):"");
+}
+function saveUi(scope){
+  const f={tips:[...document.querySelectorAll(".quota-tip.open")].map(t=>t.id)}, a=document.activeElement;
+  if(a&&a!==document.body&&scope.contains(a)){
+    const det=a.closest("details[data-key]"), row=a.closest('[data-key^="r:"]');
+    f.a=a; f.sel=focusSel(a);
+    f.box=det&&scope.contains(det)?`details[data-key="${cssEsc(det.dataset.key)}"]`:row&&scope.contains(row)?`[data-key="${cssEsc(row.dataset.key)}"]`:null;
+  }
+  return f;
+}
+function restoreUi(scope,f){
+  if(f.a&&document.activeElement!==f.a){
+    let el=f.a.isConnected?f.a:null;
+    if(!el){ const box=f.box?scope.querySelector(f.box):scope; el=box&&f.sel?box.querySelector(f.sel):null; }
+    if(el) try{ el.focus({preventScroll:true}); }catch(_){}
+  }
+  f.tips.forEach(id=>{
+    const t=document.getElementById(id); if(!t||t.classList.contains("open")) return;
+    const b=document.querySelector(`[aria-describedby="${cssEsc(id)}"]`); if(!b) return;
+    t.classList.add("open"); b.setAttribute("aria-expanded","true"); placeTip(b,t);
+  });
+}
+function setHTML(el,html){
+  if(!el) return false;
+  const n=normHtml(html); if(el._h===n) return false;
+  const f=saveUi(el); el.innerHTML=html; el._h=n; restoreUi(el,f); return true;
+}
+function patchRows(parent,rows,tag){
+  // rows: [{key, html, cls, attrs}] → one element per key, reordered in place, innerHTML only when changed.
+  if(!parent) return;
+  const f=saveUi(parent), old=new Map(), seen=new Set();
+  [...parent.children].forEach(c=>{ const k=c.getAttribute("data-key"); if(k&&k.startsWith("r:")&&!old.has(k)) old.set(k,c); else c.remove(); });
+  let prev=null;
+  rows.forEach(r=>{
+    let k="r:"+r.key; while(seen.has(k)) k+="~"; seen.add(k);
+    let el=old.get(k);
+    if(el) old.delete(k); else { el=document.createElement(tag||"div"); el.setAttribute("data-key",k); }
+    const cls=r.cls||""; if(el.className!==cls) el.className=cls;
+    Object.entries(r.attrs||{}).forEach(([n,v])=>{ if(v==null){ if(el.hasAttribute(n)) el.removeAttribute(n); } else if(el.getAttribute(n)!==String(v)) el.setAttribute(n,String(v)); });
+    const n=normHtml(r.html); if(el._h!==n){ el.innerHTML=r.html; el._h=n; }
+    const want=prev?prev.nextSibling:parent.firstChild;
+    if(el!==want) parent.insertBefore(el,want);
+    prev=el;
+  });
+  old.forEach(el=>el.remove());
+  restoreUi(parent,f);
+}
+// ---- P1: account chips, quota cards, details disclosure ----
+let ACCTS={};                 // "table|row" → provider row (one account = one card)
+const OPEN_DETAILS=new Set(); // <details data-key> the user opened; survives the 15 s re-render
+const QUOTA_STALE_S=7200;
+const ISO_RE=/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+function fmtIsoText(t){
+  return String(t==null?"":t).replace(ISO_RE,m=>{
+    const d=new Date(m.replace(/(\.\d{3})\d+/,"$1"));
+    return isNaN(d)?m:d.toLocaleString(LOCALE,{day:"numeric",month:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  });
+}
+function detailsBlock(text,key){
+  const parts=fmtIsoText(text).split(/\s+·\s+/).map(s=>s.trim()).filter(Boolean);
+  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+    `<ul class="pod-body">${parts.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`;
+}
+document.addEventListener("toggle",e=>{
+  const d=e.target; if(!d||d.tagName!=="DETAILS"||!d.dataset||!d.dataset.key) return;
+  if(d.open) OPEN_DETAILS.add(d.dataset.key); else OPEN_DETAILS.delete(d.dataset.key);
+},true);
+function allBars(row){
+  const out=[]; Object.values((row&&row.cells)||{}).forEach(c=>((c&&c.bars)||[]).forEach(b=>out.push({b,c}))); return out;
+}
+function isUnavail(b){
+  const s=String(b.state||"").toUpperCase();
+  return s==="UNAVAILABLE"||s==="NEDOSTUPNÉ"||s==="N/A"||b.percent==null||!isFinite(Number(b.percent));
+}
+function fmtPct(v){ return Number(Number(v).toFixed(1)).toLocaleString(LOCALE)+" %"; }
+function winType(b,cell){
+  const l=String(b.label||"").toLowerCase();
+  if(/\b5\s*h|5 hr|session/.test(l)) return "5h";
+  if(/week|týd|\b7\s*d\b|weekly/.test(l)) return "týden";
+  if(/bonus|kredit|credit|trial/.test(l)) return "kredit";
+  if(!(Number(b.reset_at)>0)&&/kč|czk|usd|eur|\$|€/i.test(String((cell&&cell.text)||""))) return "kredit";
+  if(/month|měs|included|\bapi\b|\bmin\b/.test(l)) return "měsíc";
+  const s=Number(b.reset_at)>0?Number(b.reset_at)-nowSec():null;
+  if(s!=null) return s>8*86400?"měsíc":s>6*3600?"týden":"5h";
+  return "limit";
+}
+function sameAsType(label,typ){
+  const l=String(label).trim().toLowerCase();
+  return l===typ||(typ==="týden"&&/^(7d|week|weekly|týden)$/.test(l))||(typ==="5h"&&/^(5h|5 h)$/.test(l));
+}
+function worstWindow(row){
+  let w=null;
+  allBars(row).forEach(x=>{ if(isUnavail(x.b)) return; if(!w||Number(x.b.percent)>Number(w.b.percent)) w=x; });
+  return w;
+}
+function renderAccountChip(a){
+  const acc=a.quota_account||null;
+  const row=acc?ACCTS[acc.table+"|"+acc.row]:null;
+  const src=row||(allBars(a).length?a:null);
+  if(!src) return `<span class="text-slate-300 text-xs" title="Agent nemá přiřazený účet s kvótou">—</span>`;
+  const w=worstWindow(src), name=acc?acc.name:"kvóta";
+  const used=w?Number(w.b.percent):null;
+  const tone=used==null?"":used>=90?" err":used>=70?" warn":"";
+  const lab=w?String(w.b.label||winType(w.b,w.c)):"";
+  const users=(acc&&acc.shared_with)||[];
+  const shared=users.length>1?"Sdílený účet s: "+users.join(", "):(acc?"Účet používá jen tento agent":"");
+  const lines=allBars(src).map(x=>`${x.b.label||winType(x.b,x.c)}: ${isUnavail(x.b)?"neznámé":"využito "+fmtPct(x.b.percent)}${x.b.reset_label?" · reset "+x.b.reset_label:""}`);
+  const tip=[name,...lines,shared,acc?"Kliknutím přejdete na účet v sekci kvót.":""].filter(Boolean).join("\n");
+  const resetAt=w&&Number(w.b.reset_at)>0?Number(w.b.reset_at):null;
+  const aria=`${name}: nejvytíženější okno ${lab||"neznámé"}, využito ${used==null?"neznámé":fmtPct(used)}. ${shared}`;
+  const inner=`<span class="acct-name">${esc(name)}</span><span aria-hidden="true">▸</span>`+
+    `<span class="acct-win">${esc(lab)} ${used==null?"?":esc(fmtPct(used))}</span>`+
+    (used!=null&&used>=90?`<span aria-hidden="true">⚠</span>`:"")+
+    (resetAt?`<span aria-hidden="true" class="quota-until" data-reset-at="${resetAt}" data-short="1">↻ ${esc(fmtShort(resetAt-nowSec()))}</span>`:"");
+  return acc
+    ?`<a class="acct-chip${tone}" href="#${esc(acc.anchor)}" data-acct="${esc(acc.anchor)}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</a>`
+    :`<span class="acct-chip${tone}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</span>`;
+}
+function freshness(r){
+  const bars=allBars(r).map(x=>x.b);
+  const st=bars.map(b=>String(b.state||"").toUpperCase());
+  const status=String(r.status||"");
+  const reason=status&&!/^(ok|aktuální záznam)$/i.test(status)?status:"";
+  if(r.alive===false||(bars.length&&bars.every(isUnavail)))
+    return {cls:"unavail",txt:"NEDOSTUPNÉ",reason:reason||"poskytovatel nevrátil data"};
+  if(st.some(s=>s==="STALE"||s==="ZASTARALÉ")||(r.age!=null&&r.age>QUOTA_STALE_S))
+    return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
+  return {cls:"ok",txt:r.age==null?"aktuální":(r.age<60?"před chvílí":"před "+fmtDuration(r.age)),reason:""};
+}
+function renderWindow(x){
+  const b=x.b, m=gaugeMetrics(b), typ=winType(b,x.c);
+  const lab=String(b.label||""), showLab=lab&&!sameAsType(lab,typ);
+  const fc=(m.unavail||m.used>=100)?"":fcText(b.forecast);
+  const warn=!!(fc&&b.forecast&&b.forecast.will_exhaust_before_reset);
+  const credit=(typ==="kredit"&&x.c&&x.c.text&&!/^ok$/i.test(x.c.text))?String(x.c.text):"";
+  const resetHtml=m.resetAt
+    ?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
+    :((b.reset_label||credit)?`<span class="quota-reset">${b.reset_label?(typ==="kredit"?"platí do ":"reset ")+esc(b.reset_label):""}${b.reset_label&&credit?" · ":""}${esc(credit)}</span>`:"");
+  return `<div class="qc-win" title="${esc(fmtIsoText(b.title||""))}">`+
+    `<span class="win-type">${esc(typ)}</span><span class="win-label">${showLab?esc(lab):""}</span>`+
+    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(typ+" "+lab+": "+m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+resetHtml+
+    (fc?`<span class="win-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+
+  `</div>`;
+}
+function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
+function renderQuotaCard(r,table){
+  const f=freshness(r), wins=allBars(r);
+  const exh=wins.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const users=r.used_by||[];
+  const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
+  const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
+  const acts=renderActions(r,table,{lock:false});
+  tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
+  return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
+    `<div class="qc-head"><span class="qc-name">${esc(r.name)}</span>`+
+    (r.label?`<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${VENDOR[r.vendor]||VENDOR.other}">${esc(r.label)}</span>`:"")+
+    `<span class="fresh ${f.cls}" title="${esc(f.reason||"stáří dat od poslední aktualizace poskytovatele")}">${esc(f.txt)}${f.reason?" · "+esc(f.reason):""}</span></div>`+
+    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>x.b.label||winType(x.b,x.c)).join(", "))}</p>`:"")+
+    `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
+    `<div class="qc-wins">${wins.map(renderWindow).join("")}`+
+      textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
+    (acts?`<div class="qc-actions">${acts}</div>`:"")+
+    (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
+}
+function renderQuotaSection(root,t){
+  const rows=t.rows||[];
+  const exh=rows.filter(r=>allBars(r).some(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100)).length;
+  const bad=t.up===false||!!t.error;
+  const head=q(root,".svc-head"), dot=q(root,".svc-dot"), cnt=q(root,".agents-count");
+  const look=bad?STATE.outage:exh?["bg-amber-400","","text-amber-600","bg-amber-50 border-amber-200"]:STATE.operational;
+  head.className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  dot.className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"");
+  patchRows(q(root,".quota-cards"), rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc))
+    :[{key:"empty",cls:"text-sm text-slate-400",html:esc(t.error||"Žádné účty.")}], "li");
+  const note=q(root,".qc-note"), txt=[t.error,t.note].filter(Boolean).join(" ");
+  note.hidden=!txt; q(note,".agents-note").textContent=txt;
+}
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a[data-acct]"); if(!a) return;
+  const el=document.getElementById(a.dataset.acct); if(!el) return;
+  e.preventDefault();
+  const sec=el.closest("section"); if(sec&&sec.dataset.collapsed==="1") setCollapsed(sec,false,true);
+  const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"});
+  el.classList.add("flash"); try{ el.focus({preventScroll:true}); }catch(_){}
+  setTimeout(()=>{ const n=document.getElementById(a.dataset.acct); if(n) n.classList.remove("flash"); },2200);
+  try{ history.replaceState(null,"","#"+a.dataset.acct); }catch(_){}
+});
+function cellFor(agent, col){
+  const cells=agent.cells||{};
+  if(cells[col.id]) return cells[col.id];
+  for(const id of (col.aliases||[])){ if(cells[id]) return cells[id]; }
+  return null;
+}
+function renderColumns(root,columns,quotaCol=false){
+  const head=q(root,"thead tr");
+  const titles=columns.map(c=>c.title).concat(quotaCol?["Kvóta"]:[]);
+  const sig=JSON.stringify(titles); if(head.dataset.cols===sig) return; head.dataset.cols=sig;
   head.querySelectorAll(".plugin-column").forEach(n=>n.remove());
-  columns.forEach(c=>{const th=document.createElement("th");th.className="plugin-column text-left font-medium px-2 py-2";th.textContent=c.title;head.insertBefore(th,head.lastElementChild);});
-  const widths=[170,105,260,97,113,...columns.map(()=>100),65];
-  q(root,"colgroup").innerHTML=columns.length?widths.map(w=>`<col style="width:${w}px">`).join(''):'<col style="width:21%"><col style="width:13%"><col style="width:32%"><col style="width:12%"><col style="width:14%"><col style="width:8%">';
-  table.style.minWidth=(columns.length?810+columns.length*100:680)+"px";
+  titles.forEach(t=>{const th=document.createElement("th");th.className="plugin-column text-left font-medium px-2 py-2";th.textContent=t;head.insertBefore(th,head.lastElementChild);});
 }
-function renderActions(a,table){
-  const stopped=a.status==="Stopped (manual)";
-  const defs=a.plugin?(a.row_actions||[]):(a.actions===false?[]:[{id:"restart",label:"Restart "+a.name,icon:"restart"},
-    stopped?{id:"stop",label:"Remove "+a.name,icon:"stop",confirm:`Remove agent "${a.name}" from Agents Monitoring? Its conversation files stay on disk.`}
-           :{id:"stop",label:"Stop "+a.name,icon:"stop"}]);
+function renderActions(a,table,{lock=true}={}){
+  const stopped=a.status==="Stopped (manual)"||a.status==="Zastaveno (ručně)";
+  const defs=a.plugin?(a.row_actions||[]):(a.actions===false?[]:[{id:"restart",label:"Restartovat "+a.name,icon:"restart"},
+    stopped?{id:"stop",label:"Odebrat "+a.name,icon:"stop",confirm:`Odebrat agenta „${a.name}“ z Monitorování agentů? Soubory konverzace zůstanou na disku.`}
+           :{id:"stop",label:"Zastavit "+a.name,icon:"stop"}]);
   const paths={restart:'M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6',stop:'M18 6 6 18M6 6l12 12',run:'M8 5l11 7-11 7z'};
-  const buttons=defs.map(x=>`<button class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
-  return buttons+((a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Actions controlled by the provider">🔒</span>':'');
+  const buttons=defs.map(x=>x.icon==='reset'
+    ?`<button type="button" class="agent-act reset-pill" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.confirm||x.label)}" aria-label="${esc(x.label)}">⟲ ${esc(x.label)}</button>`
+    :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
+  if(ROLE==="viewer"&&buttons) return `<span class="viewer-lock" title="${esc(VIEWER_TIP)}">`+buttons.replace(/<button /g,'<button disabled aria-disabled="true" ')+'</span>';
+  return buttons+(lock&&(a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
 }
 function renderAgents(root, agents, summary=null, columns=[]){
-  renderColumns(root, columns);
+  // Persistent agents: quota windows live once, in the account cards; each agent gets one account
+  // chip instead of duplicated 5h/Týden gauges. Columns with any non-quota (text) cell remain.
+  const isAgents=root.dataset.svc==="agents";
+  const quotaCol=isAgents&&agents.some(a=>a.quota_account||allBars(a).length);
+  if(isAgents) columns=columns.filter(c=>agents.some(a=>{const x=cellFor(a,c); return x&&!(x.bars&&x.bars.length);}));
+  renderColumns(root, columns, quotaCol);
   const tb=q(root,".agent-rows");
   const on=agents.some(a=>a.alive&&!a.needs_login); const running=agents.filter(a=>a.alive&&!a.needs_login).length;
   q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+(on?"bg-emerald-50 border-emerald-200":"bg-white border-slate-200");
   q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+(on?"bg-emerald-500":"bg-slate-300");
   const cnt=q(root,".agents-count");
-  // Use the same health summary for every provider's table.
-  cnt.textContent=`${running}/${agents.length} healthy`;
-  cnt.className="agents-count ml-auto text-sm font-medium "+(agents.length&&running===agents.length?"text-emerald-600":running?"text-amber-600":"text-slate-400");
+  const nWait=agents.filter(a=>a.waiting&&a.alive).length, waitTxt=nWait?` · ${nWait} čeká na vstup`:"";
+  cnt.textContent=`${running}/${agents.length} v pořádku`+waitTxt;
+  cnt.className="agents-count ml-auto text-sm font-medium "+(agents.length&&running===agents.length&&!nWait?"text-emerald-600":running?"text-amber-600":"text-slate-400");
   if(summary){
     const state=summary.up?STATE.operational:(summary.rows.length||summary.error?STATE.outage:STATE.nodata);
     q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+state[3];
     q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+state[0];
-    cnt.textContent=`${running}/${agents.length} healthy`;
+    cnt.textContent=`${running}/${agents.length} v pořádku`+waitTxt;
     cnt.className="agents-count ml-auto text-sm font-medium "+state[2];
     q(root,".agents-note").textContent=summary.error||summary.note||"";
   }
-  if(!agents.length){tb.innerHTML=`<tr><td colspan="${6+columns.length}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"No agents found."):"No tmux sessions found.")}</td></tr>`;return;}
-  tb.innerHTML="";
-  agents.forEach(a=>{
+  if(!agents.length){patchRows(tb,[{key:"empty",html:`<td colspan="${6+columns.length+(quotaCol?1:0)}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"Žádní agenti."):"Žádné tmux relace.")}</td>`}],"tr");return;}
+  const svgIcon=(d)=>`<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+  const ICO_SESSION=svgIcon("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71");
+  const ICO_PORT=svgIcon("M4 9h16M4 15h16M10 3v18M14 3v18");
+  const ICO_NONE=svgIcon("M12 8v4M12 16h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0");
+  const rows=agents.map(a=>{
+    tipSeq=0; TIP_NS=hashStr((root.dataset.svc||"")+":"+(a.id||a.name));
     const tcls=VENDOR[a.vendor]||"bg-slate-100 text-slate-600";
     const copy=a.resume_cmd||a.session_id||"";
-    const tip=copy?`${copy} (click to copy)`:"no resume";
     let sid;
     if(a.session_id){
-      sid=`<span class="sid font-mono text-xs text-slate-600 whitespace-nowrap cursor-pointer hover:text-sky-600" title="${esc(tip)}" data-copy="${esc(copy)}">${esc(a.session_id)}</span>`;
+      const tip=[a.session_id, a.session_detail||"", copy&&copy!==a.session_id?copy:"", "kliknutím zkopírujete resume"].filter(Boolean).join(" · ");
+      sid=`<button type="button" class="sid-btn" title="${esc(tip)}" aria-label="Kopírovat relaci ${esc(a.session_id)}" data-copy="${esc(copy)}">${ICO_SESSION}</button>`;
     }else if(a.kind==="daemon" && a.port){
-      // Daemons (gateways) have no session id — show the port they actually listen on instead.
-      sid=`<span class="font-mono text-xs text-slate-500 whitespace-nowrap" title="gateway port">:${a.port}</span>`;
+      sid=`<span class="sid-btn sid-muted" title="port brány :${esc(a.port)}" aria-label="Port ${esc(a.port)}">${ICO_PORT}</span>`;
     }else{
-      sid=`<span class="text-xs text-slate-300 cursor-help" title="${esc(tip)}">— none</span>`;
+      sid=`<span class="sid-btn sid-muted" title="bez relace" aria-label="Bez relace">${ICO_NONE}</span>`;
     }
-    const ok=a.alive&&!a.needs_login; const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
-    // Health is the visible status for every agent; latency is supplementary detail.
-    const statusTxt=a.status||(ok?"Running":"Idle");
-    const statusTip=[a.status_detail||a.status,
-      ok&&a.latency_ms!=null?`latency ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
-    const stCls=a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
-    const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0";
+    const ok=a.alive&&!a.needs_login; const waiting=ok&&!!a.waiting;
+    const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
+    const statusTxt=waiting?"Čeká na vstup":(a.status||(ok?"Běží":"Nečinný"));
+    const longDetail=String(a.status_detail||"").length>90;
+    const statusTip=waiting?["Čeká na vstup – agent v tmux čeká na potvrzení nebo odpověď",a.waiting_hint?`„${a.waiting_hint}“`:""].filter(Boolean).join(" · ")
+      :[longDetail?a.status:(a.status_detail||a.status),
+      ok&&a.latency_ms!=null?`latence ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
+    const stCls=waiting?"st-wait":a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
+    const stIco=waiting?`<span class="wait-ico" aria-hidden="true">✋</span>`:`<span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span>`;
+    const w=a.work&&a.work.issue?a.work:null;
+    let workHtml="";
+    if(w){
+      const wtip=`${w.state==="running"?"Pracuje na":"Přiřazeno"} #${w.issue}${w.title?": "+w.title:""}${w.state_label_cs?" · "+w.state_label_cs:""}`;
+      const inner=`<span aria-hidden="true">↗</span>#${esc(w.issue)}`, u=ghUrl(w.url);
+      workHtml=u?`<a class="work-link ${esc(w.state||"")}" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(wtip)}" aria-label="${esc(wtip)}">${inner}</a>`
+        :`<span class="work-link ${esc(w.state||"")}" title="${esc(wtip)}">${inner}</span>`;
+    }
+    const cls="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
     const nameBg=NAME_BG[a.name_color];
     const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
-    // Only tmux agents can be attached to; daemons (kind "daemon", e.g. OpenClaw/Hermes) aren't in
-    // tmux. For a tmux agent, clicking its name copies the attach command (toast feedback so the
-    // column width never jumps).
     const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
     const nameCell=(a.kind!=="daemon")
-      ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (click to copy)">${nameInner}</span>`
+      ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (kliknutím zkopírujete)">${nameInner}</span>`
       : nameInner;
-    // Telegram deep-link icon for agents bridged to a bot (opens t.me/<bot> in a new tab).
-    const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Open @${esc(a.telegram_bot)} in Telegram" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
-    const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Fresh conversation</span>`:"";
-    tr.innerHTML=
+    const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Otevřít @${esc(a.telegram_bot)} v Telegramu" aria-label="Telegram @${esc(a.telegram_bot)}" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9" aria-hidden="true"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
+    const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
+    const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Account: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Incomplete data</span>':""}</td>`+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
       `<td class="px-2 py-1.5">${sid}</td>`+
-      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap" title="${esc(a.status_detail||'')}">${a.age!=null?"ago "+fmtDuration(a.age):"–"}</td>`+
-      `<td class="px-2 py-1.5" title="${esc(statusTip)}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}"><span class="h-2 w-2 rounded-full ${dot} shrink-0"></span><span class="flex flex-col">${esc(statusTxt)}</span></span></td>`+
-      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell((a.cells||{})[c.id])}</td>`).join("")+
+      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
+      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
+      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
+      (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
-    tb.appendChild(tr);
+    return {key:a.id||a.name, cls, html};
   });
+  patchRows(tb, rows, "tr");
 }
-// Collapsible blocks. The first OPEN_BY_DEFAULT blocks (agents table + the first service cards)
-// start expanded, the rest fold to their header line; a click on any header toggles it and the
-// choice is remembered per block in localStorage (a long list of modules stays scannable).
+document.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn){ closeQuotaTips(); return; }
+  const tip=document.getElementById(btn.getAttribute("aria-describedby"));
+  if(!tip) return;
+  const open=btn.getAttribute("aria-expanded")==="true";
+  closeQuotaTips(open?null:tip);
+  if(open){ btn.setAttribute("aria-expanded","false"); tip.classList.remove("open"); return; }
+  btn.setAttribute("aria-expanded","true"); tip.classList.add("open"); placeTip(btn, tip);
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape") closeQuotaTips();
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn||(e.key!=="Enter"&&e.key!==" ")) return;
+  e.preventDefault(); btn.click();
+});
+document.addEventListener("focusin",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn) return;
+  const tip=document.getElementById(btn.getAttribute("aria-describedby"));
+  if(!tip) return;
+  closeQuotaTips(tip); btn.setAttribute("aria-expanded","true"); tip.classList.add("open"); placeTip(btn, tip);
+});
+document.addEventListener("focusout",e=>{
+  const btn=e.target.closest("[data-quota-tip]");
+  if(!btn) return;
+  setTimeout(()=>{
+    if(document.activeElement&&document.activeElement.closest("[data-quota-tip]")===btn) return;
+    closeQuotaTips();
+  },0);
+});
+window.addEventListener("resize",()=>closeQuotaTips());
+window.addEventListener("scroll",()=>closeQuotaTips(), true);
 const OPEN_BY_DEFAULT=3;
 const collapseKey=n=>"agentsmon.collapsed:"+n;
 function setCollapsed(root,collapsed,persist){
   const b=q(root,".svc-body"),c=q(root,".svc-chev"); if(!b) return;
   b.hidden=collapsed; if(c) c.textContent=collapsed?"▸":"▾"; root.dataset.collapsed=collapsed?"1":"0";
+  const head=q(root,".svc-head"); if(head) head.setAttribute("aria-expanded", collapsed?"false":"true");
   if(persist){ try{ localStorage.setItem(collapseKey(root.dataset.cname||""),collapsed?"1":"0"); }catch(e){} }
 }
 function initCollapse(root,name,index){
@@ -334,44 +1431,216 @@ document.addEventListener("click",e=>{
   const root=h.closest("section"); if(!root) return;
   setCollapsed(root, root.dataset.collapsed!=="1", true);
 });
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Enter"&&e.key!==" ") return;
+  const h=e.target.closest(".svc-head"); if(!h||e.target!==h) return;
+  e.preventDefault();
+  const root=h.closest("section"); if(!root) return;
+  setCollapsed(root, root.dataset.collapsed!=="1", true);
+});
+// ---- Fronta práce (server: agentsmon/workqueue.py, read-only) ----
+const Q_TAB_KEY="agentsmon.queue.tab";
+const Q_TABS=[["aktivni","Aktivní"],["problem","Blokováno/Selhalo"],["nezarazene","Nezařazené"],["hotovo","Hotovo 24 h"],["vse","Vše"]];
+const Q_STATE={running:["▶","Běží"],queued:["◷","Ve frontě"],awaiting_pickup:["⧗","Čeká na převzetí"],blocked:["⛔","Blokováno"],failed:["✕","Selhalo"],done:["✓","Hotovo"]};
+const CI_ICON={success:["✓","CI úspěšné"],failure:["✕","CI selhalo"],pending:["…","CI probíhá"]};
+let QTAB=(()=>{ try{ const v=localStorage.getItem(Q_TAB_KEY); return Q_TABS.some(t=>t[0]===v)?v:"aktivni"; }catch(e){ return "aktivni"; } })();
+let QFILTER=null;   // "state:<s>" from a header counter; overrides the tab until cleared
+let QDATA=null;
+function ghUrl(u){ return (typeof u==="string"&&/^https:\/\/github\.com\//.test(u))?u:null; }
+function ghLink(u,html,cls,label){
+  const s=ghUrl(u);
+  return s?`<a class="${cls||""}" href="${esc(s)}" target="_blank" rel="noopener noreferrer"${label?` aria-label="${esc(label)}"`:""}>${html}</a>`:html;
+}
+function fmtAgo(s){
+  if(s==null||!isFinite(Number(s))) return "–";
+  s=Math.max(0,Math.round(Number(s))); if(s<60) return "před chvílí";
+  const d=Math.floor(s/86400),h=Math.floor(s/3600),m=Math.floor(s/60);
+  return d?`před ${d} d`:h?`před ${h} h`:`před ${m} min`;
+}
+function qMatch(it,view){
+  if(view&&view.startsWith("state:")) return !!it.tracked&&it.state===view.slice(6);
+  if(view==="nezarazene") return !it.tracked;
+  if(!it.tracked) return false;               // untracked items live only in „Nezařazené“
+  if(view==="aktivni") return it.state==="running"||it.state==="queued"||it.state==="awaiting_pickup";
+  if(view==="problem") return it.state==="blocked"||it.state==="failed";
+  if(view==="hotovo") return it.state==="done"&&!(Number(it.age_seconds)>86400);
+  return true;
+}
+function qItem(it){
+  const st=Q_STATE[it.state]||["•",it.state];
+  const label=it.state_label_cs||st[1];
+  const t=it.task||null, pr=it.pr||null;
+  const key="qi:"+(it.kind||"")+":"+(it.issue||(t&&t.id)||it.title||"");
+  const num=it.issue?ghLink(it.url,`#${esc(it.issue)}`,"q-link",`${it.kind==="pr"?"PR":"Issue"} #${it.issue} na GitHubu`)
+    :`<span class="text-slate-400" title="${esc((t&&t.id)||"")}">—</span>`;
+  const title=ghUrl(it.url)
+    ?`<a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.title)}">${esc(it.title)}</a>`
+    :`<span class="q-tt" title="${esc(it.title)}">${esc(it.title)}</span>`;
+  const mm=it.mismatch?`<span class="q-mm" tabindex="0" title="${esc(it.mismatch)}" aria-label="Nesoulad: ${esc(it.mismatch)}"><span aria-hidden="true">⚠</span>nesoulad</span>`:"";
+  const who=[it.worker,it.profile].filter(Boolean).join(" · ");
+  let prHtml="";
+  if(pr&&pr.number){
+    const ci=CI_ICON[pr.ci];
+    prHtml=ghLink(pr.url,`PR #${esc(pr.number)}`,"q-link",`PR #${pr.number}${pr.title?": "+pr.title:""}`)+
+      (ci?`<span class="ci ${esc(pr.ci)}" role="img" title="${ci[1]}" aria-label="${ci[1]}">${ci[0]}</span>`:"")+
+      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Draft</span>`:"")+
+      (pr.review==="APPROVED"?`<span class="ci success">schváleno</span>`:pr.review==="CHANGES_REQUESTED"?`<span class="ci failure">změny</span>`:"");
+  }
+  const tries=t&&(Number(t.attempts)||Number(t.max_retries))?`pokus ${Number(t.attempts)||0}${Number(t.max_retries)?"/"+Number(t.max_retries):""}`:"";
+  const det=[];
+  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("lane "+t.lane); if(t.error) det.push("chyba: "+t.error); }
+  if(it.mismatch) det.push("⚠ "+it.mismatch);
+  if((it.labels||[]).length) det.push("štítky: "+it.labels.join(", "));
+  if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
+  const details=det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+    `<ul class="pod-body">${det.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`:"";
+  return {key, cls:"q-item", html:
+    `<span class="q-num">${num}</span>`+
+    `<span class="q-title">${title}${mm}</span>`+
+    `<span class="q-badge ${esc(it.state)}"><span aria-hidden="true">${st[0]}</span>${esc(label)}</span>`+
+    `<span class="q-who" title="${esc(who)}">${who?esc(who):"–"}</span>`+
+    `<span class="q-pr">${prHtml||'<span class="text-slate-300" aria-label="bez PR">–</span>'}</span>`+
+    `<span class="q-age" title="${esc(it.updated_at?"aktualizováno "+fmtTime(it.updated_at):"")}">${esc(fmtAgo(it.age_seconds))}</span>`+
+    ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")};
+}
+function renderQueue(qd){
+  const root=document.getElementById("fronta"); if(!root) return;
+  QDATA=qd||null;
+  if(!qd||!qd.enabled){ root.hidden=true; return; }
+  root.hidden=false; initCollapse(root,"fronta",1);
+  const s=qd.summary||{}, m=qd.meta||{}, items=qd.items||[];
+  const n=k=>Number(s[k])||0, slots=n("running_slots_max")||2;
+  const look=n("failed")?STATE.outage:(n("blocked")||m.stale&&!qd.loading)?STATE.stale:qd.loading?STATE.nodata:STATE.operational;
+  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  const prob=n("failed")+n("blocked");
+  cnt.textContent=qd.loading?"načítání…":`běží ${n("running")}/${slots} · čeká ${n("queued")+n("awaiting_pickup")}`+(prob?` · ${prob} ${plural(prob,"problém","problémy","problémů")}`:"");
+  const ctrs=[["running",`běží ${n("running")}/${slots}`,""],["queued",`fronta ${n("queued")}`,""],
+    ["awaiting_pickup",`čeká ${n("awaiting_pickup")}`,""],["blocked",`blok ${n("blocked")}`,n("blocked")?"warn":""],
+    ["failed",`selhalo ${n("failed")}`,n("failed")?"bad":""],["done",`hotovo 24 h ${n("done_24h")}`,""]];
+  setHTML(q(root,".q-counters"),ctrs.map((c,i)=>(i?`<span class="q-sep" aria-hidden="true">·</span>`:"")+
+    `<button type="button" class="q-ctr ${c[2]}" data-qfilter="${c[0]}" aria-pressed="${QFILTER==="state:"+c[0]}" title="Filtrovat: ${esc(Q_STATE[c[0]][1])}">${esc(c[1])}</button>`).join(""));
+  const gh=q(root,".q-gh"), repo=ghUrl(m.repo_url);
+  gh.hidden=!repo; if(repo){ gh.href=repo; gh.title="Otevřít "+(m.repo||"repozitář")+" na GitHubu"; }
+  setHTML(q(root,".q-tabs"),Q_TABS.map(([id,lab])=>{
+    const c=items.filter(it=>qMatch(it,id)).length, sel=!QFILTER&&QTAB===id;
+    return `<button type="button" role="tab" class="q-tab" data-qtab="${id}" aria-selected="${sel}" aria-controls="q-panel">${esc(lab)} <span class="tabular-nums">(${c})</span></button>`;
+  }).join(""));
+  const parts=[], errs=m.source_errors||[];
+  if(m.stale&&!qd.loading) parts.push("Zastaralá data fronty"+(m.last_success_at?` – poslední úspěšné načtení ${fmtAgo(nowSec()-Number(m.last_success_at))}`:""));
+  if(errs.length) parts.push("Chyby zdrojů: "+errs.join(" · "));
+  const note=q(root,".q-note"); note.hidden=!parts.length; note.textContent=parts.join(". ");
+  const view=QFILTER||QTAB, shown=items.filter(it=>qMatch(it,view));
+  patchRows(q(root,".q-list"),(qd.loading&&!items.length)?[{key:"empty",cls:"q-empty",html:"načítání…"}]
+    :shown.length?shown.map(qItem):[{key:"empty",cls:"q-empty",html:QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}],"li");
+}
+function setQueueView(tab,filter){
+  if(tab){ QTAB=tab; try{ localStorage.setItem(Q_TAB_KEY,tab); }catch(_){} }
+  QFILTER=filter||null; renderQueue(QDATA);
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-qtab]");
+  if(t){ setQueueView(t.dataset.qtab,null); const b=document.querySelector(`[data-qtab="${t.dataset.qtab}"]`); if(b) b.focus(); return; }
+  const c=e.target.closest("[data-qfilter]");
+  if(c){ const f="state:"+c.dataset.qfilter; setQueueView(null,QFILTER===f?null:f);
+    const b=document.querySelector(`[data-qfilter="${c.dataset.qfilter}"]`); if(b) b.focus(); }
+});
+// ---- Vyžaduje pozornost + celkový stav (spočítáno na serveru: compute_attention) ----
+const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],info:["ℹ","Informace"]};
+let lastAttnCount=null;
+function renderAttention(list,ov){
+  const box=document.getElementById("attention"); if(!box) return;
+  const items=Array.isArray(list)?list:[], total=Math.max(items.length,Number(ov&&ov.total)||0);
+  box.hidden=!items.length;
+  box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
+  document.getElementById("attn-h").textContent=`Vyžaduje pozornost (${total})`;
+  setHTML(q(box,".attn-list"),items.map(a=>{
+    const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
+    let link="";
+    if(/^#[A-Za-z0-9_-]+$/.test(href)){
+      const id=href.slice(1);
+      link=`<a class="attn-link" href="${esc(href)}" data-attn="${esc(id)}"`+(a.queue_tab?` data-qtab-go="${esc(a.queue_tab)}"`:"")+
+        (id.startsWith("kvota-")?` data-acct="${esc(id)}"`:"")+`>Detail →</a>`;
+    }else if(ghUrl(href)){
+      link=`<a class="attn-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`;
+    }
+    const x=a.action;
+    const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
+      row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
+    const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
+    return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
+      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span>${esc(a.text_cs)}${cd}</span>${act}${link}</li>`;
+  }).join(""));
+  const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
+  const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
+  pill.className="ovr "+(ov?lv:"");
+  setHTML(pill,ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–");
+  const cnt=Number(ov&&ov.count)||0;
+  document.title=(cnt?`(${cnt}) `:"")+"Monitorování agentů";
+  if(lastAttnCount!==null&&cnt!==lastAttnCount)
+    document.getElementById("attn-live").textContent=cnt?`Vyžaduje pozornost: ${cnt} ${plural(cnt,"položka","položky","položek")}`:"Vše v provozu";
+  lastAttnCount=cnt;
+}
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a[data-attn]"); if(!a||a.dataset.acct) return;   // quota links: data-acct handler
+  const el=document.getElementById(a.dataset.attn); if(!el) return;
+  e.preventDefault();
+  const sec=el.closest("section"); if(sec&&sec.dataset.collapsed==="1") setCollapsed(sec,false,true);
+  if(a.dataset.qtabGo) setQueueView(a.dataset.qtabGo,null);
+  const more=el.matches&&el.matches(".svc-item")?q(el,"details.svc-more"):null; if(more&&!more.open) more.open=true;
+  const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
+});
+function syncTables(box,list,all,d){
+  // Plugin agent tables live in the left column, quota tables in the right one; rebuilt only when the set changes.
+  const wanted=list.map(t=>t.id+"/"+(t.kind||"")).join("|");
+  if(box.dataset.keys!==wanted){
+    box.innerHTML="";
+    list.forEach(t=>{
+      const tplId=t.kind==="quota"?"quota-table-tpl":"agent-table-tpl";
+      const root=document.getElementById(tplId).content.firstElementChild.cloneNode(true);
+      root.dataset.svc=t.id; box.appendChild(root);
+    });
+    box.dataset.keys=wanted;
+    list.forEach(t=>{ delete LAST_SIG["t:"+t.id]; });
+  }
+  list.forEach((t,i)=>{
+    const root=box.children[i], h=q(root,"h2"); if(h.textContent!==t.title) h.textContent=t.title; if(t.anchor&&root.id!==t.anchor) root.id=t.anchor;
+    if(sectionChanged("t:"+t.id,t.kind==="quota"?t:[t,d.columns])){
+      if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
+    }
+    initCollapse(root,t.id,all.indexOf(t)+1);
+  });
+}
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
-    document.getElementById('app').style.maxWidth=(850+(d.columns||[]).length*100)+'px';
+    if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
+    if(sectionChanged("resets",d.resets)) renderResets(d.resets);
+    try{ if(sectionChanged("attention",[d.attention,d.overall])) renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
+    ACCTS={};
+    (d.agent_tables||[]).forEach(t=>{ if(t.kind==="quota") (t.rows||[]).forEach(r=>{ ACCTS[t.id+"|"+r.id]=r; }); });
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
-    renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
-    const tables=document.getElementById("plugin-tables");
-    const wanted=(d.agent_tables||[]).map(t=>t.id).join("|");
-    if(tables.dataset.keys!==wanted){
-      tables.innerHTML="";
-      (d.agent_tables||[]).forEach(t=>{
-        const root=document.getElementById("agent-table-tpl").content.firstElementChild.cloneNode(true);
-        root.dataset.svc=t.id; tables.appendChild(root);
-      });
-      tables.dataset.keys=wanted;
-    }
-    (d.agent_tables||[]).forEach((t,i)=>{
-      const root=tables.children[i]; q(root,"h2").textContent=t.title;
-      renderAgents(root,t.rows,t,d.columns||[]); initCollapse(root,t.id,i+1);
-    });
-    document.getElementById("plugin-loading").hidden=!d.plugin_loading;
-    const errors=document.getElementById("plugin-errors"); errors.replaceChildren();
-    (d.plugin_errors||[]).forEach(p=>{
+    if(sectionChanged("agents",[d.agents,d.columns,d.agent_tables])) renderAgents(agentsRoot, d.agents, null, d.columns||[]);
+    initCollapse(agentsRoot,"agents",0);
+    try{ if(sectionChanged("queue",d.queue)) renderQueue(d.queue); }catch(err){ console.error("queue",err); }
+    const allTables=d.agent_tables||[];
+    syncTables(document.getElementById("plugin-agent-tables"), allTables.filter(t=>t.kind!=="quota"), allTables, d);
+    syncTables(document.getElementById("plugin-tables"), allTables.filter(t=>t.kind==="quota"), allTables, d);
+    const pl=document.getElementById("plugin-loading"); if(pl.hidden!==!d.plugin_loading) pl.hidden=!d.plugin_loading;
+    const errors=document.getElementById("plugin-errors");
+    if(sectionChanged("plugin_errors",d.plugin_errors)) errors.replaceChildren();
+    if(!errors.childElementCount) (d.plugin_errors||[]).forEach(p=>{
       const box=document.createElement("div"); box.className="mb-4 border border-rose-200 bg-rose-50 rounded-lg p-3";
       box.textContent=p.name+": "+p.detail; errors.appendChild(box);
     });
-    const box=document.getElementById("services"); const tpl=document.getElementById("svc-tpl");
-    if(box.childElementCount!==d.services.length){
-      box.innerHTML=""; d.services.forEach(()=>box.appendChild(tpl.content.cloneNode(true)));
-    }
-    const sections=box.querySelectorAll("section");
-    d.services.forEach((s,i)=>{ const root=sections[i]; q(root,".svc-name").textContent=s.name; renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
-    document.getElementById("footer").textContent="updated "+new Date().toLocaleTimeString()+` · core v${d.core.version} (${d.core.state})`;
-  }catch(e){document.getElementById("footer").textContent="connection lost…";}
+    if(sectionChanged("services",d.services)) renderServices(d.services||[]);
+    document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
+  }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
 function copyText(text){
   if(navigator.clipboard && window.isSecureContext){ return navigator.clipboard.writeText(text); }
-  // Fallback for plain http (e.g. over a VPN IP): clipboard API needs a secure context.
   const ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
   document.body.appendChild(ta); ta.focus(); ta.select();
   try{ document.execCommand("copy"); }catch(e){} document.body.removeChild(ta);
@@ -386,42 +1655,94 @@ function showToast(msg){
 document.addEventListener("click", e=>{
   const el=e.target.closest("[data-copy]"); if(!el) return;
   copyText(el.dataset.copy).then(()=>{
-    // Flash the element green + toast — no textContent swap, so column width never jumps.
     el.classList.add("copied-flash");
     setTimeout(()=>el.classList.remove("copied-flash"), 700);
-    showToast("✓ Copied to clipboard");
+    showToast("✓ Zkopírováno do schránky");
   });
 });
-// Restart / Stop buttons → POST /api/agent/action, then refresh. Stop asks for confirmation.
 document.addEventListener("click", async e=>{
   const btn=e.target.closest(".agent-act"); if(!btn) return;
+  if(ROLE==="viewer"){ showToast("⚠ "+VIEWER_TIP); return; }
   const name=btn.dataset.name, act=btn.dataset.act;
   if(btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
-  if(act==="stop" && !btn.dataset.confirm && !confirm(`Stop agent "${name}"? It won't be auto-restarted until you press ↻.`)) return;
+  if(act==="stop" && !btn.dataset.confirm && !confirm(`Zastavit agenta „${name}“? Nebude automaticky restartován, dokud nestisknete ↻.`)) return;
   btn.disabled=true; btn.classList.add("opacity-40");
-  showToast((btn.dataset.table?"Running action for ":act==="restart"?"↻ Restarting ":"✕ Stopping ")+name+"…");
+  showToast((act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…");
   try{
-    const r=await fetch("/api/agent/action",{method:"POST",credentials:"same-origin",
-      headers:{"Content-Type":"application/json","X-Agentsmon":"action"},body:JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row})});
-    const j=await r.json().catch(()=>({}));
-    showToast((j&&j.ok?"✓ ":"⚠ ")+((j&&j.message)||(r.ok?"done":"failed")));
+    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row});
+    const send=async tok=>{
+      const h={"Content-Type":"application/json","X-Agentsmon":"action"};
+      if(tok) h["X-Agentsmon-Confirm"]=tok;
+      const r=await fetch("/api/agent/action",{method:"POST",credentials:"same-origin",headers:h,body});
+      return [r, await r.json().catch(()=>({}))];
+    };
+    let [r,j]=await send();
+    if(r.status===428 && j && j.confirm_token){
+      // Step-up: the server repeats exactly what will happen; the one-time token expires.
+      if(!confirm(`Potvrzení nevratné akce\n\n${j.summary||(act+" – "+name)}\n\nOpravdu pokračovat? Potvrzení platí ${j.expires_in||120} s.`)){
+        showToast("Akce zrušena"); btn.disabled=false; btn.classList.remove("opacity-40"); return;
+      }
+      [r,j]=await send(j.confirm_token);
+    }
+    showToast((j&&j.ok?"✓ ":"⚠ ")+((j&&j.message)||(r.ok?"hotovo":"selhalo")));
   }catch(err){ showToast("⚠ "+err); }
   setTimeout(refresh, act==="restart"?2500:600);
 });
-refresh(); setInterval(refresh, POLL*1000);
+function schedulePoll(){
+  clearInterval(pollTimer);
+  if(!paused) pollTimer=setInterval(refresh, POLL*1000);
+}
+document.getElementById("btn-refresh").addEventListener("click",()=>refresh());
+document.getElementById("btn-pause").addEventListener("click",ev=>{
+  paused=!paused;
+  ev.currentTarget.setAttribute("aria-pressed", paused?"true":"false");
+  ev.currentTarget.textContent=paused?"Obnovu spustit":"Pozastavit obnovu";
+  schedulePoll();
+  showToast(paused?"Automatická obnova pozastavena":"Automatická obnova běží");
+  refresh();
+});
+initResetsPanel(); refresh(); schedulePoll();
 </script></body></html>"""
 
-PAGE=PAGE.replace('AGENT_TABLES',
-    AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistent Agents')
-        .replace('NOTE','tmux sessions running an agent, linked by their <code>--resume</code> session id')+
-    '<div id="plugin-tables"></div>'+
+
+PAGE=PAGE.replace('AGENT_TABLES_MAIN',
+    AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
+        .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
+        .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
+    QUEUE_SECTION+'<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
+    '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
+    '<details class="resets-details">'
+    '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
+    '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
+    '<span class="resets-extra text-xs"></span></summary>'
+    '<p class="text-[11px] text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
+    '<ul class="resets-list"></ul></details></section>'
+    '<div id="plugin-tables"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
-    'Plugins loading: Awaiting a fresh bounded check</div><div id="plugin-errors"></div>'+
+    'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
+    QUOTA_SECTION+
     '<template id="agent-table-tpl">'+AGENT_TABLE.replace('KEY','plugin').replace('HIDDEN','')
-        .replace('TITLE','Agents').replace('NOTE','')+'</template>')
+        .replace('TITLE','Agenti').replace('NOTE','')+'</template>')
+
+
+STALE_FACTOR = 3   # last sample older than 3 × its check interval → "Zastaralá data", never green
+
+
+def _staleness(cur, interval: int, now: float | None = None) -> tuple[str | None, bool, int | None]:
+    """(state, stale, age_seconds) for the latest sample. A sample older than STALE_FACTOR × the
+    check interval is reported as ``stale`` — a probe that stopped writing must not keep the last
+    green value forever (Telegram most showed "V provozu" from data 6 days old)."""
+    if not cur:
+        return "nodata", False, None
+    now = time.time() if now is None else now
+    age = max(0, int(now - (cur["ts"] or 0)))
+    if age > STALE_FACTOR * max(1, int(interval or 60)):
+        return "stale", True, age
+    return ("operational" if cur["up"] else "outage"), False, age
 
 
 def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
+    interval = int(cfg.get("probe", {}).get("interval_seconds", 60) or 60)
     win_days = int(cfg.get("probe", {}).get("sla_window_days", 90))
     tdays = int(cfg.get("probe", {}).get("timeline_days", 90))
     min_outage = int(cfg.get("probe", {}).get("min_outage_samples", 3))
@@ -434,10 +1755,11 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
         sla_pct, samples = db.sla(name, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
         metric = s.get("metric", "latency")   # "latency" | "agents" (show running-agent count)
+        state, stale, data_age = _staleness(cur, s.get("interval_seconds") or interval)
         out.append({
             "name": name,
             "up": bool(cur and cur["up"]),
-            "state": "operational" if (cur and cur["up"]) else ("outage" if cur else "nodata"),
+            "state": state, "stale": stale, "data_age": data_age,
             "detail": cur["detail"] if cur else "no data yet",
             "last_ts": cur["ts"] if cur else None,
             "latency_ms": round(lat * 1000) if lat is not None else None,
@@ -447,7 +1769,7 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "metric_sub": s.get("latency_label", "module" if s.get("command") else "health check"),
             "source": s.get("source", "config"),
             "row_details": s.get("row_details") is True,
-            "rows": _service_rows(name, win_days, min_outage),
+            "rows": _service_rows(name, win_days, min_outage, s.get("interval_seconds") or interval),
             "uptime_seconds": db.uptime_seconds(name, min_outage),
             "sla": sla_pct, "sla_window_days": win_days, "sla_samples": samples,
             "timeline": db.timeline(name, tdays * 86400, tdays), "timeline_days": tdays,
@@ -455,7 +1777,7 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
     return out
 
 
-def _service_rows(service: str, win_days: int, min_outage: int) -> list[dict]:
+def _service_rows(service: str, win_days: int, min_outage: int, interval: int = 60) -> list[dict]:
     """Per-row state for a module that reports ``rows`` (one website/tunnel/db per line). Each row
     is its own sample series ``"<service> › <row>"`` with uptime and SLA like a service."""
     out = []
@@ -464,9 +1786,10 @@ def _service_rows(service: str, win_days: int, min_outage: int) -> list[dict]:
         cur = db.last(rname)
         sla_pct, samples = db.sla(rname, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
+        state, stale, data_age = _staleness(cur, interval)
         out.append({"name": r["name"], "url": r.get("url") or "",
                     "up": bool(cur and cur["up"]),
-                    "state": "operational" if (cur and cur["up"]) else ("outage" if cur else "nodata"),
+                    "state": state, "stale": stale, "data_age": data_age,
                     "detail": cur["detail"] if cur else "no data yet", "last_ts": cur["ts"] if cur else None,
                     "latency_ms": round(lat * 1000) if lat is not None else None,
                     "sla": sla_pct, "sla_samples": samples,
@@ -629,6 +1952,10 @@ def _agent_action(name: str, action: str) -> tuple[bool, str]:
 
 
 def _state() -> bytes:
+    return json.dumps(_state_data()).encode()
+
+
+def _state_data() -> dict:
     cfg = config.load()
     agents = _agents_state(cfg)
     for a in agents:
@@ -658,11 +1985,433 @@ def _state() -> bytes:
         s["system_latency_ms"] = sysavg
         s["system_latency_n"] = len(lat_by_url)
     from .integrity import status as core_status
-    data = {"time": int(time.time()), "agents": agents, "agent_tables": extra['tables'],
-            "columns": extra['columns'], "plugin_errors": extra['errors'], "plugins": extra['plugins'],
+    agent_tables = _merge_tables_by_title(extra['tables'])
+    link_quota_accounts(agent_tables, agents, extra['patches'])
+    resets = upcoming_resets(agent_tables, agents)
+    # Quota history + burn-rate forecast + Telegram alerts; each swallows its own errors.
+    forecasts = quota.observe(agent_tables, agents)
+    quota.annotate(agent_tables, agents, resets, forecasts)
+    alerts.tick(cfg, agent_tables, agents, forecasts)
+    for s in services:
+        s["anchor"] = "sluzba-" + _anchor_slug(s.get("name"))
+    for t in agent_tables:
+        t.setdefault("anchor", "tabulka-" + _anchor_slug(t.get("id") or t.get("title")))
+    data = {"time": int(time.time()), "agents": agents,
+            "agent_tables": agent_tables,
+            "resets": resets, "forecasts": forecasts,
+            "columns": _merge_columns_by_title(extra['columns']),
+            "plugin_errors": extra['errors'], "plugins": extra['plugins'],
             "plugin_loading": extra.get('loading', False),
-            "core": core_status(), "services": services}
-    return json.dumps(data).encode()
+            "core": core_status(), "services": services,
+            "queue": workqueue.get(cfg)}
+    try:
+        assign_agent_work(agents, data["queue"])
+    except Exception:                             # a queue quirk must never break /api/state
+        for a in agents:
+            a["work"] = None
+    data["attention"], data["overall"] = compute_attention(data)
+    return data
+
+
+# ---- "Vyžaduje pozornost" + overall status (server-side, so the page only renders) ----------
+ATTENTION_MAX = 6
+_SEV_ORDER = {"critical": 0, "warning": 1, "info": 2}
+SERVICE_LABELS_CS = {
+    "Multi-Agent System Availability": "Dostupnost multiagentního systému",
+    "Multi-agent system availability": "Dostupnost multiagentního systému",
+    "Telegram Bridge": "Telegram most",
+    "LANA Hermes Telegram Lane": "LANA Hermes Telegram lane",
+}
+_STOPPED = ("Stopped (manual)", "Zastaveno (ručně)")
+
+
+def _cz_plural(n: int, one: str, few: str, many: str) -> str:
+    return one if n == 1 else few if 2 <= n <= 4 else many
+
+
+def _cz_duration(sec) -> str:
+    try:
+        sec = max(0, int(sec))
+    except (TypeError, ValueError):
+        return "?"
+    d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+    return f"{d} d {h} h" if d else f"{h} h {m} min" if h else f"{max(1, m)} min"
+
+
+def _bar_exhausted(b: dict) -> bool:
+    state = str(b.get("state") or "").upper()
+    if state in ("UNAVAILABLE", "NEDOSTUPNÉ", "N/A"):
+        return False
+    rem, used = b.get("remaining"), b.get("percent")
+    return (state in ("VYČERPÁNO", "EXHAUSTED") or (type(rem) in (int, float) and rem <= 0)
+            or (type(used) in (int, float) and used >= 100))
+
+
+def _gh(url) -> str | None:
+    return url if isinstance(url, str) and url.startswith("https://github.com/") else None
+
+
+def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]:
+    """Everything that needs a human, worst first: ``([{severity, text_cs, href, action}],
+    {level, text_cs, count, total})``. ``count`` = critical + warning items (tab title badge);
+    the list is capped at ATTENTION_MAX, ``total`` is the uncapped length. Never raises."""
+    now = time.time() if now is None else now
+    out: list[dict] = []
+
+    def add(sev, text, href=None, action=None, **extra):
+        out.append({"severity": sev, "text_cs": text, "href": href, "action": action, **extra})
+
+    try:
+        for s in data.get("services") or []:
+            name = SERVICE_LABELS_CS.get(s.get("name"), s.get("name") or "služba")
+            href = "#" + (s.get("anchor") or "services")
+            if s.get("state") == "outage":
+                add("critical", f"{name}: výpadek", href)
+            elif s.get("state") == "stale":
+                age = f" (poslední data před {_cz_duration(s.get('data_age'))})" if s.get("data_age") is not None else ""
+                add("warning", f"{name}: Zastaralá data{age}", href)
+            bad = [r for r in s.get("rows") or [] if r.get("state") == "outage"]
+            if bad and s.get("state") != "outage":
+                add("warning", f"{name}: {len(bad)} {_cz_plural(len(bad), 'kontrola', 'kontroly', 'kontrol')} ve výpadku"
+                    f" ({', '.join(str(r.get('name')) for r in bad[:3])})", href)
+        rows = [(a, "#agenti") for a in data.get("agents") or []]
+        rows += [(r, "#" + (t.get("anchor") or "plugin-tables")) for t in data.get("agent_tables") or []
+                 if t.get("kind") != "quota" for r in t.get("rows") or []]
+        for a, href in rows:
+            name = a.get("name") or a.get("id") or "agent"
+            if a.get("status") in _STOPPED:
+                add("info", f"Agent {name}: zastaven ručně", href)
+            elif not a.get("alive"):
+                add("critical", f"Agent {name}: neběží", href)
+            elif a.get("needs_login"):
+                add("warning", f"Agent {name}: čeká na přihlášení", href)
+            elif a.get("waiting"):
+                add("warning", f"{name} čeká na vstup", href)
+        for t in data.get("agent_tables") or []:
+            if t.get("kind") != "quota":
+                continue
+            for r in t.get("rows") or []:
+                exh = [b for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
+                       if _bar_exhausted(b)]
+                if not exh:
+                    continue
+                labels = ", ".join(dict.fromkeys(str(b.get("label") or "okno") for b in exh))
+                resets = [b.get("reset_at") for b in exh if type(b.get("reset_at")) is int and b["reset_at"] > now]
+                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label")]
+                text = f"{r.get('name') or r.get('id')}: vyčerpáno {labels}"
+                if when and resets:
+                    text += f" – reset {when[0]}"
+                elif when:                      # no timestamp, only a period ("měsíc")
+                    text += f" ({when[0]})"
+                act = next((x for x in r.get("row_actions") or [] if x.get("id") == "redeem_reset"), None)
+                action = ({"kind": "row_action", "table": t.get("id"), "row": r.get("id"),
+                           "name": r.get("name") or r.get("id"), "id": act.get("id"),
+                           "label": act.get("label") or "Uplatnit reset", "icon": act.get("icon") or "reset",
+                           "confirm": act.get("confirm") or ""} if act else None)
+                add("warning", text, "#" + r["anchor"] if r.get("anchor") else "#plugin-tables", action,
+                    reset_at=min(resets) if resets else None)
+        for p in data.get("plugin_errors") or []:
+            add("warning", f"Plugin {p.get('name')}: {str(p.get('detail') or 'chyba')[:140]}", "#plugin-errors")
+        qd = data.get("queue") or {}
+        if qd.get("enabled") and not qd.get("loading"):
+            sm, meta, items = qd.get("summary") or {}, qd.get("meta") or {}, qd.get("items") or []
+            tracked = [i for i in items if i.get("tracked")]
+
+            def nums(state):
+                return ", ".join(f"#{i['issue']}" for i in tracked if i.get("state") == state and i.get("issue"))[:60]
+
+            def one_url(state):
+                hits = [i for i in tracked if i.get("state") == state]
+                return _gh(hits[0].get("url")) if len(hits) == 1 else None
+
+            n = int(sm.get("failed") or 0)
+            if n:
+                add("critical", f"Fronta: {n} {_cz_plural(n, 'úloha selhala', 'úlohy selhaly', 'úloh selhalo')}"
+                    + (f" ({nums('failed')})" if nums("failed") else ""), one_url("failed") or "#fronta",
+                    queue_tab="problem")
+            n = int(sm.get("blocked") or 0)
+            if n:
+                add("warning", f"Fronta: {n} {_cz_plural(n, 'úloha blokována', 'úlohy blokovány', 'úloh blokováno')}"
+                    + (f" ({nums('blocked')})" if nums("blocked") else ""), one_url("blocked") or "#fronta",
+                    queue_tab="problem")
+            red = [i for i in items if (i.get("pr") or {}).get("ci") == "failure"]
+            seen = set()
+            red = [i for i in red if not (i["pr"].get("number") in seen or seen.add(i["pr"].get("number")))]
+            if len(red) == 1:
+                pr = red[0]["pr"]
+                add("warning", f"PR #{pr.get('number')}: CI selhalo – {str(pr.get('title') or red[0].get('title') or '')[:80]}",
+                    _gh(pr.get("url")) or "#fronta", queue_tab="vse")
+            elif red:
+                add("warning", f"{len(red)} PR s chybou CI ({', '.join('#' + str(i['pr'].get('number')) for i in red[:4])})",
+                    "#fronta", queue_tab="vse")
+            if meta.get("stale") or meta.get("source_errors"):
+                errs = meta.get("source_errors") or []
+                add("warning", "Fronta práce: Zastaralá data" + (f" – {str(errs[0])[:120]}" if errs else ""), "#fronta")
+            n = int(sm.get("awaiting_pickup") or 0)
+            if n:
+                add("info", f"Fronta: {n} {_cz_plural(n, 'položka čeká', 'položky čekají', 'položek čeká')} na převzetí",
+                    "#fronta", queue_tab="aktivni")
+            n = int(sm.get("mismatches") or 0)
+            if n:
+                add("info", f"Fronta: {n} {_cz_plural(n, 'nesoulad', 'nesoulady', 'nesouladů')} GitHub × supervisor",
+                    "#fronta", queue_tab="vse")
+    except Exception as exc:                      # the panel must never break /api/state
+        add("warning", f"Výpočet upozornění selhal: {type(exc).__name__}", None)
+    out.sort(key=lambda x: _SEV_ORDER.get(x["severity"], 9))       # stable: keeps source order
+    count = sum(1 for x in out if x["severity"] in ("critical", "warning"))
+    if any(x["severity"] == "critical" for x in out):
+        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count})"}
+    elif count:
+        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count})"}
+    else:
+        overall = {"level": "ok", "text_cs": "Vše v provozu"}
+    overall.update(count=count, total=len(out))
+    return out[:ATTENTION_MAX], overall
+
+
+# ---- "pracuje na #N": which queue item each agent is working on (deterministic, never guessed) ----
+#: Queue states that can belong to an agent, best first. Done/failed items are history, not work.
+WORK_STATES = ("running", "awaiting_pickup", "blocked", "queued")
+#: worker/lane token (lowercase alnum, suffix-stripped) → agent ``kind`` for kinds that run once.
+WORKER_KINDS = {"cursor": "cursor", "claude": "claude-code", "claudecode": "claude-code",
+                "codex": "codex", "antigravity": "antigravity", "agy": "antigravity",
+                "gemini": "antigravity"}
+_WORKER_SUFFIXES = ("json", "cli", "agent", "worker", "lane")
+
+
+def _norm_token(value) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _worker_key(worker) -> str:
+    n = _norm_token(worker)
+    for suf in _WORKER_SUFFIXES:
+        if n.endswith(suf) and len(n) > len(suf):
+            n = n[: -len(suf)]
+    return n
+
+
+def _agents_for_worker(worker, agents: list) -> list:
+    """Agents a ``worker:`` label / supervisor lane refers to: exact agent name first
+    (``worker:lana`` → LANA), then the agent kind (``cursor_json`` → the Cursor agent)."""
+    raw, key = _norm_token(worker), _worker_key(worker)
+    if not key:
+        return []
+    named = [a for a in agents if _norm_token(a.get("name")) in (raw, key)]
+    if named:
+        return named
+    kind = WORKER_KINDS.get(key)
+    return [a for a in agents if kind and str(a.get("kind") or "").lower() == kind]
+
+
+def _agents_for_profile(profile, agents: list) -> list:
+    """``profile:lana`` without a worker = the Hermes profile daemon itself (``LANA (Hermes)``)."""
+    p = _norm_token(profile)
+    return [a for a in agents if p and a.get("kind") == "daemon"
+            and _norm_token(a.get("name")) == p + "hermes"]
+
+
+def assign_agent_work(agents: list, queue: dict | None) -> None:
+    """Set ``agent["work"] = {issue, kind, url, title, state, state_label_cs}`` or ``None``.
+
+    An item maps to an agent through its explicit worker (label ``worker:`` or the supervisor
+    lane); only items without any worker fall back to ``profile:``. Anything that maps to zero or
+    several agents is skipped, and an agent with several items in its best state gets ``None`` —
+    the dashboard never guesses."""
+    for a in agents:
+        a["work"] = None
+    qd = queue or {}
+    if not qd.get("enabled"):
+        return
+    picked: dict[int, tuple] = {}
+    for it in qd.get("items") or []:
+        if not isinstance(it, dict) or it.get("state") not in WORK_STATES or not it.get("tracked"):
+            continue
+        task = it.get("task") or {}
+        workers = [w for w in (it.get("worker"), task.get("lane")) if w]
+        targets: list = []
+        for w in workers:
+            targets = _agents_for_worker(w, agents)
+            if targets:
+                break
+        if not workers and it.get("profile"):
+            targets = _agents_for_profile(it.get("profile"), agents)
+        if len(targets) != 1:
+            continue
+        picked.setdefault(id(targets[0]), (targets[0], []))[1].append(it)
+    for agent, items in picked.values():
+        best = min(WORK_STATES.index(i["state"]) for i in items)
+        top = [i for i in items if WORK_STATES.index(i["state"]) == best]
+        if len(top) != 1:
+            continue
+        i = top[0]
+        num = i.get("issue") or (i.get("pr") or {}).get("number")
+        agent["work"] = {"issue": num if isinstance(num, int) else None, "kind": i.get("kind"),
+                         "url": _gh(i.get("url")), "title": str(i.get("title") or "")[:160],
+                         "state": i.get("state"), "state_label_cs": i.get("state_label_cs")}
+
+
+def upcoming_resets(tables: list, agents: list, now: float | None = None, limit: int = 24) -> list:
+    """Every quota window with a known future reset, soonest first — one entry per window.
+
+    Provider tables are the source of truth (one row per account); agent rows only repeat the
+    same windows as compact gauges, so they are used solely for windows no table carries.
+    A window counts as exhausted when nothing remains — that is the reset worth waiting for.
+    """
+    now = time.time() if now is None else now
+    out, seen = [], set()
+    sources = [(r, True) for t in tables or [] for r in t.get("rows", [])] + [(a, False) for a in agents or []]
+    for row, primary in sources:
+        for cell in (row.get("cells") or {}).values():
+            for b in (cell or {}).get("bars") or []:
+                ts = b.get("reset_at")
+                if type(ts) is not int or ts <= now:
+                    continue
+                key = (round(float(b.get("percent") or 0), 1), ts // 60)
+                if key in seen and not primary:
+                    continue
+                name = (row.get("name") or "").strip()
+                ident = (name, b.get("label"), ts // 60)
+                if ident in seen:
+                    continue
+                seen.add(ident); seen.add(key)
+                rem = b.get("remaining")
+                used = b.get("percent")
+                state = str(b.get("state") or "").upper()
+                out.append({
+                    "source": name, "label": b.get("label") or "", "reset_at": ts,
+                    "reset_label": b.get("reset_label") or "", "percent": used, "remaining": rem,
+                    "state": state,
+                    "exhausted": state == "VYČERPÁNO" or (type(rem) in (int, float) and rem <= 0)
+                                 or (type(used) in (int, float) and used >= 100),
+                })
+    out.sort(key=lambda e: (e["reset_at"], e["source"], e["label"]))
+    return out[:limit]
+
+
+def _bar_signature(cells) -> set:
+    """Identify quota windows across rows: (reset minute, rounded used %) — or the bar title when
+    a window has no reset (credits). Plugin patches copy the provider row's windows onto agent
+    rows (sometimes relabelled, e.g. "Claude 5h" → "5h"), so labels alone do not match."""
+    sig = set()
+    for cell in (cells or {}).values():
+        for b in (cell or {}).get("bars") or []:
+            ts = b.get("reset_at")
+            if type(ts) is int and ts > 0:
+                try:
+                    sig.add(("r", ts // 60, round(float(b.get("percent") or 0))))
+                except (TypeError, ValueError):
+                    continue
+            elif b.get("title"):
+                sig.add(("t", str(b["title"])))
+    return sig
+
+
+def _anchor_slug(text: str) -> str:
+    ascii_ = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_.lower()).strip("-") or "ucet"
+
+
+def link_quota_accounts(tables: list, agents: list, patches: list) -> None:
+    """Mark quota tables (``kind: "quota"``) and link each agent to the provider row (account)
+    whose windows a plugin patch copied onto it — so the UI shows one account chip per agent and
+    the windows once, in the account card. Adds ``anchor`` + ``used_by`` to provider rows and
+    ``quota_account`` to agents; the plugin API and the copied ``cells`` stay untouched.
+    An agent without patches falls back to a unique exact name match (agent "Cursor" ↔ row
+    labelled "Cursor")."""
+    rows, anchors = [], set()
+    for t in tables or []:
+        quota_rows = [r for r in t.get("rows") or [] if _bar_signature(r.get("cells"))]
+        if not quota_rows:
+            continue
+        t["kind"] = "quota"
+        for r in t.get("rows") or []:
+            base = "kvota-" + _anchor_slug(r.get("id") or r.get("name"))
+            anchor, n = base, 2
+            while anchor in anchors:
+                anchor, n = f"{base}-{n}", n + 1
+            anchors.add(anchor)
+            r["anchor"], r["used_by"] = anchor, []
+        rows += [(t, r, _bar_signature(r.get("cells"))) for r in quota_rows]
+    if not rows:
+        return
+    for a in agents or []:
+        applied = [p for p in patches or [] if p.get("row_id") == a.get("id") and p.get("cells")]
+        sig = set().union(*(_bar_signature(p["cells"]) for p in applied)) if applied else set()
+        best, score, via = None, 0, "patch"
+        for t, r, rsig in rows:
+            n = len(sig & rsig)
+            if n > score:
+                best, score = (t, r), n
+        if best is None and not applied:
+            name = (a.get("name") or "").strip().casefold()
+            hits = [(t, r) for t, r, _ in rows
+                    if name and name in ((r.get("label") or "").strip().casefold(),
+                                         (r.get("name") or "").split("·")[0].strip().casefold())]
+            if len(hits) == 1:
+                best, via = hits[0], "name"
+        if best:
+            t, r = best
+            r["used_by"].append(a.get("name") or a.get("id") or "")
+            a["quota_account"] = {"table": t.get("id"), "row": r.get("id"), "name": r.get("name") or "",
+                                  "anchor": r["anchor"], "via": via, "shared_with": r["used_by"]}
+
+
+def _merge_columns_by_title(columns: list) -> list:
+    """Collapse plugin columns that share a display title (e.g. two plugins both emit 5h)."""
+    out, index = [], {}
+    for col in columns or []:
+        title = col.get("title") or col.get("id")
+        if title in index:
+            prev = out[index[title]]
+            aliases = list(prev.get("aliases") or [prev["id"]])
+            if col["id"] not in aliases:
+                aliases.append(col["id"])
+            prev["aliases"] = aliases
+        else:
+            index[title] = len(out)
+            item = dict(col)
+            item["aliases"] = [col["id"]]
+            out.append(item)
+    return out
+
+
+def _merge_tables_by_title(tables: list) -> list:
+    """One Provider-quotas section even when Codex + Cursor plugins both contribute."""
+    out, index = [], {}
+    for table in tables or []:
+        title = table.get("title") or table.get("id")
+        if title in index:
+            prev = out[index[title]]
+            prev["rows"] = list(prev.get("rows") or []) + list(table.get("rows") or [])
+            notes = [n for n in (prev.get("note"), table.get("note")) if n]
+            if notes:
+                prev["note"] = " ".join(dict.fromkeys(notes))
+            prev["up"] = bool(prev.get("up", True) and table.get("up", True))
+            if table.get("error"):
+                prev["error"] = ((prev.get("error") or "") + " " + table["error"]).strip()
+        else:
+            index[title] = len(out)
+            out.append(dict(table))
+    return out
+
+
+def _quota_loop(stop: threading.Event, interval: int = 60) -> None:
+    """Build the state in the background so quota history and alerts keep running with no browser
+    open. The state builder is cheap (plugins are cached and refreshed off-thread)."""
+    while not stop.wait(interval):
+        try:
+            data = _state_data()
+            # Without a browser polling, the plugin cache is cold: that build returns an empty
+            # 'loading' snapshot and starts a refresh. Retry briefly until real data is there.
+            for _ in range(10):
+                if not data.get("plugin_loading"):
+                    break
+                if stop.wait(3):
+                    return
+                data = _state_data()
+        except Exception as exc:
+            print(f"quota loop: {type(exc).__name__}: {exc}", flush=True)
 
 
 def _probe_loop(stop: threading.Event) -> None:
@@ -682,12 +2431,23 @@ def _loopback(host: str) -> bool:
 
 
 def require_auth_or_die(host: str, cfg: dict) -> None:
-    """Fail closed: a dashboard reachable from anything but loopback must have HTTP auth
-    configured (audit 2026-09-08). Without it anyone on that network could stop or restart
-    agents. `agentsmon setup` sets dashboard.auth; loopback-only installs stay optional."""
+    """Require login off-loopback unless an administrator opts into a private LAN bind.
+
+    The LAN exception requires a specific RFC1918 IPv4 address and an actual boolean;
+    administrators must restrict incoming clients with the host firewall.
+    Use ``agentsmon setup`` to review bind/auth options.
+    """
     auth = cfg.get("dashboard", {}).get("auth") or {}
     if _loopback(host) or (auth.get("user") and auth.get("pwhash")):
         return
+    if cfg.get("dashboard", {}).get("allow_unauthenticated_lan") is True:
+        try:
+            address = ipaddress.IPv4Address(host)
+            if any(address in ipaddress.IPv4Network(network) for network in
+                   ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
+                return
+        except ipaddress.AddressValueError:
+            pass
     raise SystemExit(
         f"refusing to listen on {host} without dashboard.auth (user + pwhash) in the config — "
         "the page can stop and restart agents. Bind 127.0.0.1 or set the password via `agentsmon setup`."
@@ -710,37 +2470,207 @@ def serve(host: str, port: int) -> None:
     print(f"Agents Monitoring dashboard → http://{host}:{port}  (Ctrl-C to stop)")
     if cfg.get("services"):
         threading.Thread(target=_probe_loop, args=(threading.Event(),), daemon=True).start()
+    quota.start()
+    alerts.start()
+    workqueue.start(cfg)      # GitHub/supervisor work queue: background cache, no-op when disabled
+    threading.Thread(target=_quota_loop, args=(threading.Event(),), daemon=True,
+                     name="agentsmon-quota").start()
     write_pidfile()
     server.serve_forever()
 
 
+def _metrics_token(dcfg: dict) -> str:
+    tok = dcfg.get("metrics_token")
+    if not tok and dcfg.get("metrics_token_file"):
+        try:
+            tok = Path(os.path.expanduser(str(dcfg["metrics_token_file"]))).read_text(encoding="utf-8")
+        except OSError:
+            tok = None
+    return tok.strip() if isinstance(tok, str) else ""
+
+
+_MSG_421 = ("421 Misdirected Request – neznámá adresa v hlavičce Host. Dashboard otevřete přes jeho "
+            "IP adresu nebo název stroje (případně ji doplňte do dashboard.allowed_hosts).\n").encode("utf-8")
+_POST_REJECT_MSG = {
+    "x-agentsmon": "Chybí hlavička X-Agentsmon (požadavek z cizí stránky?).",
+    "sec-fetch-site": "Požadavek z cizí stránky byl odmítnut (Sec-Fetch-Site).",
+    "origin": "Požadavek z cizího původu byl odmítnut (Origin).",
+}
+
+
 def make_server(host: str, port: int, cfg: dict):
     """Same handler for production and isolated HTTP acceptance tests."""
-    require_auth_or_die(host, cfg)
-    poll = cfg.get("dashboard", {}).get("poll_seconds", 15)
+    import sys
+    from urllib.parse import urlsplit, parse_qs
+    dcfg = cfg.get("dashboard", {}) or {}
+    auth_mode = check_auth_mode(host, dcfg)
+    ts_mode = auth_mode == "tailscale"
+    if not ts_mode:
+        require_auth_or_die(host, cfg)
+    elif not _login_set(dcfg.get("admins")):
+        print("VAROVÁNÍ: dashboard.auth_mode=tailscale bez dashboard.admins – nikdo nemůže spouštět akce.",
+              file=sys.stderr)
+    step_up = dcfg.get("step_up", ts_mode) is True
+    confirms = ConfirmTokens(dcfg.get("confirm_ttl_seconds", 120))
+    poll = dcfg.get("poll_seconds", 15)
     page = PAGE.replace("POLL", str(poll)).encode()
-    auth = cfg.get("dashboard", {}).get("auth") or {}
+    auth = (dcfg.get("auth") or {}) if not ts_mode else {}
     auth_user, auth_hash = auth.get("user"), auth.get("pwhash")
+    if auth_user and is_legacy_hash(auth_hash):
+        print("VAROVÁNÍ: dashboard.auth.pwhash je starý nesolený SHA-256 – nastavte heslo znovu přes "
+              "`agentsmon setup` (uloží se jako scrypt).", file=sys.stderr)
+    metrics_token = _metrics_token(dcfg)
+    limiter = _RateLimiter(dcfg.get("post_rate_per_min", 10))
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 15                      # slowloris: a stalled client frees its thread after 15 s
+        server_version = "AgentsMonitoring"
+        sys_version = ""
+
         def log_message(self, *a):
             pass
+
+        def end_headers(self):
+            for k, v in SECURITY_HEADERS:
+                self.send_header(k, v)
+            path = urlsplit(getattr(self, "path", "") or "").path
+            # The page embeds the role/identity and the action JS, so a cached copy (e.g. a phone
+            # tab left open on the old LAN address) must never be reused.
+            if path.startswith("/api/") or path in ("/metrics", "/", "/index.html"):
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def _reply(self, status, body: bytes, ctype="application/json", extra=()):
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            for k, v in extra:
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
 
         def _denied(self):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Agents Monitoring"')
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
+        def _host_ok(self, audited=False) -> bool:
+            hosts = self.headers.get_all("Host") or []
+            if len(hosts) == 1 and _host_allowed(hosts[0], self.server.agentsmon_allowed_hosts):
+                return True
+            if audited:
+                self._audit(421, "rejected", "host")
+            self._reply(421, _MSG_421, "text/plain; charset=utf-8")
+            return False
+
+        def _audit(self, status, result, reason=None, params=None, message=None):
+            p = params if isinstance(params, dict) else {}
+            entry = {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "client_ip": self.client_address[0] if self.client_address else None,
+                "user": getattr(self, "_audit_user", None),
+                "role": (getattr(self, "_ident", None) or {}).get("role"),
+                "source": (getattr(self, "_ident", None) or {}).get("source"),
+                "user_agent": _clip(self.headers.get("User-Agent"), 200),
+                "route": _clip(urlsplit(self.path).path, 200),
+            }
+            for k in ("name", "table", "row", "action"):
+                v = p.get(k)
+                entry[k] = _clip(v, 240) if isinstance(v, str) else None
+            if p.get("confirmed"):
+                entry["confirmed"] = True
+            entry.update({"status": status, "result": result})
+            if reason:
+                entry["reason"] = reason
+            if reason == "host":
+                entry["host"] = _clip(self.headers.get("Host"), 200)
+            if message is not None:
+                entry["message"] = _clip(message, 300)
+            audit(entry)
+
+        def _post_fail(self, status, reason, message, params=None, extra=()):
+            self._audit(status, "rejected", reason, params, message)
+            body = json.dumps({"ok": False, "error": reason, "message": message}, ensure_ascii=False).encode()
+            self._reply(status, body, "application/json", extra)
+
+        def _identify(self) -> bool:
+            """Set ``self._ident``; on refusal reply 403 (Czech) and return False."""
+            if not ts_mode:
+                basic = _basic_credentials(self.headers.get("Authorization")) if auth_user else None
+                self._ident = {"role": "admin", "user": basic[0] if basic else None, "name": "",
+                               "source": "basic" if auth_user else "open", "reason": None}
+                return True
+            self._ident = tailscale_identity(self.headers, self.client_address[0], dcfg)
+            self._audit_user = _clip(self._ident["user"], 254)
+            if self._ident["role"]:
+                return True
+            login = self._ident["user"]
+            msg = (f"Účet {login} nemá přístup k Monitorování agentů. Požádejte správce o doplnění do "
+                   "dashboard.viewers." if login else
+                   "Přístup jen pro přihlášené uživatele tailnetu (Tailscale Serve, bez tagovaného zařízení).")
+            self._audit(403, "rejected", self._ident["reason"])
+            if urlsplit(self.path).path.startswith("/api/") or self.command == "POST":
+                body = json.dumps({"ok": False, "error": "forbidden", "message": msg}, ensure_ascii=False).encode()
+                self._reply(403, body)
+            else:
+                import html as _html
+                body = ('<!doctype html><html lang="cs"><meta charset="utf-8"><title>Přístup odepřen</title>'
+                        '<body style="font-family:sans-serif;margin:2em"><h1>Přístup odepřen</h1><p>'
+                        + _html.escape(msg) + '</p></body></html>').encode()
+                self._reply(403, body, "text/html; charset=utf-8")
+            return False
+
+        def _page(self) -> bytes:
+            import html as _html
+            ident = self._ident
+            role = ident["role"]
+            if ident["source"] == "tailscale":
+                who = f"{ident['user']} · {ROLE_CS[role]}"
+            elif ident["source"] == "loopback":
+                who = f"místní přístup · {ROLE_CS[role]}"
+            elif ident["source"] == "basic" and ident["user"]:
+                who = f"{ident['user']} · {ROLE_CS[role]}"
+            else:
+                who = ""
+            return (page.replace(b"__AGENTSMON_ROLE__", role.encode())
+                        .replace(b"__AGENTSMON_WHO__", _html.escape(_clip(who, 300)).encode()))
+
         def do_GET(self):
-            if auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
-                                                        auth_user, auth_hash):
+            self._audit_user = None
+            if not self._host_ok():
+                return
+            if not self._identify():
+                return
+            is_metrics = self.path == "/metrics" or self.path.startswith("/metrics?")
+            bearer = False
+            if is_metrics and metrics_token:
+                bearer = _bearer_ok(self.headers.get("Authorization"), metrics_token)
+                if not bearer and not _loopback_peer(self.client_address[0]):
+                    return self._reply(401, "Chybí platný token pro /metrics.\n".encode("utf-8"),
+                                       "text/plain; charset=utf-8",
+                                       (("WWW-Authenticate", 'Bearer realm="agentsmon-metrics"'),))
+            if not bearer and auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
+                                                                       auth_user, auth_hash):
                 return self._denied()
-            if self.path.startswith("/api/state"):
+            if self.path == "/api/whoami":
+                i = self._ident
+                body = json.dumps({"user": i["user"], "name": i["name"] or None, "role": i["role"],
+                                   "role_cs": ROLE_CS.get(i["role"]), "source": i["source"],
+                                   "auth_mode": auth_mode}, ensure_ascii=False).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+            elif self.path.startswith("/api/state"):
                 body = _state()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
+            elif is_metrics:
+                body = metrics.render(_state_data()).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):
-                body = page
+                body = self._page()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
             elif self.path == "/static/tailwind.js":
@@ -752,6 +2682,7 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_header("Cache-Control", "public, max-age=86400")
             else:
                 self.send_response(404)
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             self.send_header("Content-Length", str(len(body)))
@@ -759,48 +2690,79 @@ def make_server(host: str, port: int, cfg: dict):
             self.wfile.write(body)
 
         def do_POST(self):
-            if auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
-                                                        auth_user, auth_hash):
-                return self._denied()
-            from urllib.parse import urlparse, parse_qs
-            parsed = urlparse(self.path)
+            self._audit_user = None
+            if not self._host_ok(audited=True):
+                return
+            if not self._identify():
+                return
+            if not limiter.allow(self._ident["user"] or self.client_address[0]):
+                return self._post_fail(429, "rate-limit", "Příliš mnoho akcí za sebou – zkuste to za chvíli.",
+                                       extra=(("Retry-After", "10"),))
+            if auth_user and auth_hash:
+                if not _auth_ok(self.headers.get("Authorization"), auth_user, auth_hash):
+                    self._audit(401, "rejected", "auth")
+                    return self._denied()
+                self._audit_user = _clip((_basic_credentials(self.headers.get("Authorization")) or ("",))[0], 120)
+            parsed = urlsplit(self.path)
             if parsed.path != "/api/agent/action":
+                self._audit(404, "rejected", "not-found")
                 self.send_response(404)
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            if not _action_allowed(self.headers):
-                body = json.dumps({"ok": False, "error": "missing X-Agentsmon header (cross-site request?)"}).encode()
-                self.send_response(403)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
+            reason = _post_rejection(self.headers, self.server.agentsmon_allowed_hosts)
+            if reason:
+                return self._post_fail(403, reason, _POST_REJECT_MSG[reason])
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return self._post_fail(415, "content-type", "Požadavek musí být application/json.")
             try: length = int(self.headers.get("Content-Length", 0) or 0)
             except ValueError: length = -1
             if not 0 <= length <= 16384:
-                self.send_error(413); return
+                return self._post_fail(413, "length", "Neplatná délka požadavku.")
             raw = self.rfile.read(length) if length else b""
-            params = {}
             try:
                 params = json.loads(raw or b"{}")
             except ValueError:
-                params = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", "replace")).items()}
+                params = None
             if not isinstance(params, dict):
-                self.send_error(400); return
+                return self._post_fail(400, "json", "Neplatné JSON tělo požadavku.")
             qs = parse_qs(parsed.query)
             name = params.get("name") or (qs.get("name", [None])[0])
             act = params.get("action") or (qs.get("action", [None])[0])
             table, row = params.get('table'), params.get('row')
+            logged = {"name": name, "table": table, "row": row, "action": act}
+            if self._ident["role"] != "admin":
+                return self._post_fail(403, "role", "Akce smí spouštět jen správce (vaše role: "
+                                       + ROLE_CS.get(self._ident["role"], "?") + ").", logged)
+            if table is not None and not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
+                return self._post_fail(400, "params", "Neplatné parametry akce.", logged)
+            if step_up and needs_step_up(act, table, dcfg) and (table is not None or isinstance(name, str)):
+                target = (table, row) if table is not None else (name,)
+                user = self._ident["user"] or ""
+                presented = self.headers.get("X-Agentsmon-Confirm")
+                if not presented:
+                    tok = confirms.issue(user, act, target)
+                    summary = step_up_summary(act, name, table, row)
+                    self._audit(428, "confirm-required", None, logged, summary)
+                    return self._reply(428, json.dumps({
+                        "ok": False, "error": "confirm-required", "confirm_token": tok,
+                        "expires_in": int(confirms.ttl), "summary": summary,
+                        "message": "Akce vyžaduje potvrzení."}, ensure_ascii=False).encode())
+                why = confirms.redeem(presented.strip(), user, act, target)
+                if why:
+                    return self._post_fail(403, "confirm-" + why, "Potvrzení je neplatné nebo vypršelo – "
+                                           "spusťte akci znovu.", logged)
+                logged["confirmed"] = True
             if table is not None:
-                if not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
-                    self.send_error(400); return
                 ok, msg = plugins.manager(config.load()).action(table,row,act)
                 body = json.dumps({'ok':ok,'message':msg}).encode()
                 status = 200 if ok else 409
             elif not isinstance(name,str) or not name or act not in ("restart", "stop"):
+                self._audit(400, "rejected", "params", logged)
                 body = json.dumps({"ok": False, "error": "need name + action (restart|stop)"}).encode()
                 status = 400
+                ok = None
             else:
                 try:
                     ok, msg = _agent_action(name, act)
@@ -808,13 +2770,14 @@ def make_server(host: str, port: int, cfg: dict):
                     ok, msg = False, str(exc)
                 body = json.dumps({"ok": ok, "message": msg}).encode()
                 status = 200 if ok else 500
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            if ok is not None:
+                self._audit(status, "ok" if ok else "error", None, logged, msg)
+            self._reply(status, body, "application/json")
 
-    return ThreadingHTTPServer((host, port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.agentsmon_allowed_hosts = allowed_hosts(host, server.server_port, cfg)
+    server.agentsmon_confirms = confirms
+    return server
 
 
 def pidfile_path():
