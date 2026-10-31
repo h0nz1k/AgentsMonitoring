@@ -122,7 +122,7 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
                 alive = bool(pids)
         # Concrete model detected LIVE (so it stays current without rebuilding config); an
         # explicit config tag/vendor still wins if set.
-        model = daemon_model(d.get("name", ""))
+        model = daemon_model(d.get("name", ""), d.get("hermes_profile"))
         out.append({
             "name": d.get("name"), "kind": "daemon",
             "label": d.get("tag") or model or d.get("name"),
@@ -131,6 +131,9 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
             "session_id": None, "alive": alive, "age": age, "latency_ms": lat,
             "health_url": health_url,
             "port": _daemon_port(health_url) if (health_url and alive) else None,
+            # A second row of a shared process (e.g. one Hermes gateway, two profiles) must not
+            # offer its own restart/stop: config ``actions: false`` hides them.
+            **({"actions": False} if d.get("actions") is False else {}),
         })
     return out
 
@@ -277,7 +280,8 @@ def _model_from_argv(cmds: list[str]) -> str | None:
     for cmd in cmds:
         try: parts = shlex.split(cmd)
         except ValueError: continue
-        if not parts or os.path.basename(parts[0]) not in ('claude','codex','agy','antigravity'): continue
+        if not parts or os.path.basename(parts[0]) not in ('claude','codex','agy','antigravity',
+                                                            'agent','cursor-agent'): continue
         for i,part in enumerate(parts):
             if part == '--model' and i+1 < len(parts): return prettify_model(parts[i+1])
             if part.startswith('--model='): return prettify_model(part.split('=',1)[1])
@@ -290,7 +294,11 @@ def prettify_model(raw: str) -> str:
     Routing by family matters: sending everything through the Claude prettifier left Gemini
     ids on screen exactly as the process was launched with them.
     """
-    r = raw or ""
+    r = (raw or "").strip()
+    if "/" in r:                                 # provider-qualified: google/gemini-4-argon
+        r = r.rsplit("/", 1)[-1]
+    if r.startswith("composer"):                 # Cursor: composer-2.5 → Composer 2.5
+        return " ".join(p if p[:1].isdigit() else p.capitalize() for p in r.split("-"))
     if r.startswith("gemini"):
         return _pretty_gemini_model(r)
     if r.split("/")[-1][:3].lower() in ("gpt", "o1-", "o3-", "o4-") or re.match(r"o\d", r):
@@ -637,13 +645,21 @@ def _openclaw_model() -> str | None:
     return _pretty_model(found[0]) if found else None
 
 
-def _hermes_model() -> str | None:
-    """Hermes' configured model from ~/.hermes/config.yaml (``model.default``). Hermes runs on
+def _hermes_profile_home(profile: str | None) -> Path:
+    """HERMES_HOME of a profile: the default profile lives in ~/.hermes, others under profiles/."""
+    root = Path.home() / ".hermes"
+    if profile and profile not in ("default", "main") and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", profile):
+        return root / "profiles" / profile
+    return root
+
+
+def _hermes_model(profile: str | None = None) -> str | None:
+    """Hermes' configured model from the profile's config.yaml (``model.default``). Hermes runs on
     the openai-codex *provider* but selects its own model there, so the provider default (Codex)
     is not authoritative — read the agent's own config so the tag follows a model switch.
     Best-effort; returns None on any failure so the caller can fall back."""
     try:
-        with (Path.home() / ".hermes" / "config.yaml").open(encoding="utf-8") as stream:
+        with (_hermes_profile_home(profile) / "config.yaml").open(encoding="utf-8") as stream:
             head = stream.read(65536)
     except OSError:
         return None
@@ -658,20 +674,90 @@ def _hermes_model() -> str | None:
                 lex=shlex.shlex(m.group(1),posix=True);lex.whitespace_split=True;lex.commenters='#'
                 values=list(lex)
             except ValueError: return None
-            if len(values)==1 and re.fullmatch(r'[A-Za-z0-9_./:-]+',values[0]): return _pretty_model(values[0])
+            if len(values)==1 and re.fullmatch(r'[A-Za-z0-9_./:-]+',values[0]): return prettify_model(values[0])
             return None
     return None
 
 
-def daemon_model(name: str) -> str | None:
-    """Concrete model a known daemon runs (best-effort, for the tag)."""
+def _hermes_live_model(profile: str | None = None) -> str | None:
+    """Model the Hermes gateway is ACTUALLY using in its current Telegram conversation.
+
+    ``model.default`` in config.yaml is only the boot default; a ``/model`` switch is stored as
+    ``model_override`` on the routing entry, and every answered turn lands in
+    ``session_model_usage`` (which also captures a fallback provider taking over). Order:
+    explicit override → most recently used model of that session → ``sessions.model``.
+
+    One gateway serves several profiles and keeps all their routes in the DEFAULT store, keyed
+    ``agent:<profile>:telegram:…`` (``main`` = default profile). With ``profile`` set, only that
+    profile's routes count — otherwise a row would show whichever profile spoke last. Usage and
+    session rows are looked up in the default store and in the profile's own store.
+    Read-only; any failure returns None so the caller falls back to the config default.
+    """
+    root = Path.home() / ".hermes"
+    db = root / "state.db"
+    if not db.exists():
+        return None
+    prefix = None
+    if profile:
+        prefix = "agent:%s:" % ("main" if profile in ("default", "main") else profile)
+    sid, override = None, None
+    try:
+        with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            for raw, in conn.execute(
+                    "SELECT entry_json FROM gateway_routing WHERE scope=? AND length(entry_json)<65536 "
+                    "ORDER BY updated_at DESC LIMIT 256", (str(root / "sessions"),)):
+                try:
+                    entry = json.loads(raw)
+                except ValueError:
+                    continue
+                if (not isinstance(entry, dict) or entry.get("platform") != "telegram"
+                        or entry.get("expiry_finalized") or not isinstance(entry.get("session_id"), str)):
+                    continue
+                if prefix and not str(entry.get("session_key") or "").startswith(prefix):
+                    continue
+                sid = entry["session_id"]
+                mo = entry.get("model_override")
+                override = mo.get("model") if isinstance(mo, dict) else (mo if isinstance(mo, str) else None)
+                break
+    except (sqlite3.Error, OSError):
+        return None
+    if override:
+        return prettify_model(override)
+    if not sid:
+        return None
+    stores = [db]
+    own = _hermes_profile_home(profile) / "state.db"
+    if own != db and own.exists():
+        stores.insert(0, own)
+    for store in stores:
+        try:
+            with closing(sqlite3.connect(store.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
+                conn.execute("PRAGMA query_only=ON")
+                for query in ("SELECT model FROM session_model_usage WHERE session_id=? "
+                              "ORDER BY last_seen DESC LIMIT 1",
+                              "SELECT model FROM sessions WHERE id=?"):
+                    try:
+                        row = conn.execute(query, (sid,)).fetchone()
+                    except sqlite3.Error:
+                        continue
+                    if row and isinstance(row[0], str) and row[0].strip():
+                        return prettify_model(row[0])
+        except (sqlite3.Error, OSError):
+            continue
+    return None
+
+
+def daemon_model(name: str, profile: str | None = None) -> str | None:
+    """Concrete model a known daemon runs (best-effort, for the tag). ``profile`` pins a Hermes
+    row to one profile of a shared gateway (config ``hermes_profile``)."""
     n = name.lower()
     if "openclaw" in n:
         return _openclaw_model()
-    if "hermes" in n:
+    if "hermes" in n or profile:
         # Hermes owns its model selection. Unknown configuration must stay unknown;
         # another CLI's rollout can belong to an entirely different account/session.
-        return _hermes_model()
+        return _hermes_live_model(profile) or _hermes_model(profile)
     return None
 
 
@@ -691,12 +777,15 @@ def vendor_for_model(model: str | None) -> str | None:
     if not model:
         return None
     m = model.lower()
-    if "gpt" in m or m[:1] == "o":
-        return "openai"
-    if any(k in m for k in ("claude", "opus", "sonnet", "haiku")):
+    # Anthropic first: "Opus 5.5" starts with "o" and was coloured as OpenAI.
+    if any(k in m for k in ("claude", "opus", "sonnet", "haiku", "fable")):
         return "anthropic"
+    if "gpt" in m or re.match(r"o\d", m):
+        return "openai"
     if "gemini" in m:
         return "google"
+    if "composer" in m or "cursor" in m:
+        return "cursor"
     return None
 
 
@@ -750,6 +839,10 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
         elif kind == "antigravity":
             _, amodel = _antigravity_info_for_cwd(row['cwd'])
             label = antigravity_label(amodel, sid, ranked, label)
+        elif kind not in ("codex", "shell"):
+            # Config-matched agents (Cursor `agent --model composer-2.5`, …): the launch argv is
+            # the only live signal; keep the configured label when no --model is present.
+            label = _model_from_argv(ranked) or label
         resume = RESUME_TEMPLATES[kind].format(id=sid) if (sid and kind in RESUME_TEMPLATES
                   and not row.get('identity_conflict')) else None
         agents.append({
@@ -760,8 +853,8 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
             "identity_conflict": row.get('identity_conflict', False),
         })
         if kind in ('codex', 'claude-code'):
-            pane = _run([_tmux_bin(), 'capture-pane', '-p', '-t', row['name']])
-            if pane and pane.returncode == 0 and login_screen(kind, pane.stdout):
+            pane = capture_pane(row['name'], now)
+            if pane and login_screen(kind, pane):
                 agents[-1].update(needs_login=True, status='Needs login')
     return agents
 
@@ -781,10 +874,117 @@ def login_screen(kind: str, text: str) -> bool:
     return False
 
 
+# ---- "Čeká na vstup": a tmux agent blocked on a human (approval / confirmation / login) ----------
+#: Agent kinds (lowercase) whose TUI is inspected. Read-only: capture-pane, never send-keys.
+WAITING_KINDS = {"claude-code", "codex", "cursor", "antigravity"}
+#: Case-insensitive regexes matched against the last WAITING_TAIL_LINES non-empty pane lines.
+#: Override with config ``detect.waiting_patterns`` (a list; ``[]`` disables the detection).
+DEFAULT_WAITING_PATTERNS = [
+    r"\bDo you want to (proceed|continue|make this edit|create|run|allow|apply|overwrite)\b",
+    r"^[❯›>●○]?\s*1\.\s*Yes\b",
+    r"\bYes, (allow|and don't ask|proceed|apply)\b",
+    r"\bAllow (command|execution|this|once|always|edit|tool|access)\b.*\?",
+    r"\bWould you like to (run|make|apply|allow|proceed)\b",
+    r"\bRun (this )?command\?",
+    r"\bApprove\b.*\?|\b(approval|confirmation) (required|needed)\b",
+    r"\bWaiting for (your |user )?(approval|input|confirmation)\b",
+    r"\bPress (Enter|any key|return) to (continue|confirm|retry|proceed|sign in|log in|login)\b",
+    r"\((y/n|y/N|Y/n)\)|\[(y/n|y/N|Y/n)\]",
+    r"\bSign in with ChatGPT\b|\b(Please run|Run) /login\b|\bPaste (the )?(code|token) here\b",
+    r"\b(Log|Sign) in to (Cursor|Google|Antigravity)\b",
+]
+WAITING_TAIL_LINES = 12
+PANE_TTL = 10.0
+PANE_TIMEOUT = 2.0
+HINT_MAX = 120
+_PANE_CACHE: dict[str, tuple[float, str | None]] = {}
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
+
+
+def capture_pane(session: str, now: float | None = None, ttl: float = PANE_TTL) -> str | None:
+    """Last ~30 lines + visible screen of a tmux pane; cached ``ttl`` s, 2 s timeout, None on error."""
+    now = time.time() if now is None else now
+    hit = _PANE_CACHE.get(session)
+    if hit and 0 <= now - hit[0] < ttl:
+        return hit[1]
+    r = _run([_tmux_bin(), "capture-pane", "-p", "-t", session, "-S", "-30"], timeout=PANE_TIMEOUT)
+    text = r.stdout if r is not None and r.returncode == 0 else None
+    _PANE_CACHE[session] = (now, text)
+    if len(_PANE_CACHE) > 64:
+        for k, (ts, _) in list(_PANE_CACHE.items()):
+            if now - ts >= ttl:
+                _PANE_CACHE.pop(k, None)
+    return text
+
+
+def sanitize_hint(text: str, limit: int = HINT_MAX) -> str:
+    """One pane line made safe for /api/state: no ANSI/control chars, secrets masked, ≤ limit."""
+    t = ANSI_RE.sub("", str(text or ""))
+    t = re.sub(r"[\x00-\x1f\x7f]", " ", t)
+    t = re.sub(r"(?i)\b(bearer|token|api[_-]?key|secret|password|passwd|pwd|authorization)"
+               r"(\s*[:=]\s*|\s+)[^\s\"']+", r"\1\2•••", t)
+    t = re.sub(r"\b\d{6,}:[A-Za-z0-9_-]{20,}", "•••", t)
+    t = re.sub(r"\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|glpat|xox[abpr]|AIza|ya29)[-_A-Za-z0-9.]{8,}", "•••", t)
+    t = re.sub(r"[A-Za-z0-9_+=-]{24,}", "•••", t)
+    t = re.sub(r"([?&][^=\s&]+=)[^&\s]+", r"\1•••", t)
+    t = " ".join(t.split())
+    return t if len(t) <= limit else t[: limit - 1] + "…"
+
+
+def _compile_patterns(patterns) -> list:
+    out = []
+    for p in patterns or []:
+        try:
+            out.append(re.compile(str(p), re.I))
+        except re.error:
+            continue
+    return out
+
+
+def waiting_prompt(text: str | None, patterns=None, tail: int = WAITING_TAIL_LINES) -> str | None:
+    """Sanitized hint (the first matching line of the pane's tail) when the TUI waits for a human."""
+    if not text:
+        return None
+    pats = _compile_patterns(DEFAULT_WAITING_PATTERNS if patterns is None else patterns)
+    if not pats:
+        return None
+    lines = [ln.strip().strip("│┃╭╮╰╯─ ").strip() for ln in ANSI_RE.sub("", text).splitlines()]
+    lines = [ln for ln in lines if ln][-tail:]
+    for ln in lines:
+        if any(rx.search(ln) for rx in pats):
+            return sanitize_hint(ln) or "čeká na vstup"
+    return None
+
+
+def waiting_patterns(cfg: dict | None):
+    pats = ((cfg or {}).get("detect") or {}).get("waiting_patterns")
+    return pats if isinstance(pats, list) else None
+
+
+def annotate_waiting(rows: list[dict], cfg: dict | None = None, now: float | None = None) -> None:
+    """Mark live tmux agents whose pane shows an approval/confirmation/login prompt:
+    ``waiting=True, activity='waiting', status='Čeká na vstup', waiting_hint=<≤120 chars>``."""
+    pats = waiting_patterns(cfg)
+    if pats is not None and not pats:
+        return
+    for row in rows:
+        if not row.get("alive") or row.get("needs_login") or row.get("kind") == "daemon":
+            continue
+        if str(row.get("kind") or "").lower() not in WAITING_KINDS:
+            continue
+        hint = waiting_prompt(capture_pane(row.get("tmux_session") or row["name"], now), pats)
+        if hint:
+            row.update(waiting=True, activity="waiting", status="Čeká na vstup", waiting_hint=hint)
+
+
 def configured_agents(cfg: dict) -> list[dict]:
     """Include configured agents even after their tmux session was stopped."""
     from . import config
     rows = discover_agents(config.agent_matches(cfg))
+    try:
+        annotate_waiting(rows, cfg)
+    except Exception:            # pane heuristics must never hide an agent
+        pass
     names = {r['name'] for r in rows}
     for entry in cfg.get('agents', []):
         if entry['name'] not in names:

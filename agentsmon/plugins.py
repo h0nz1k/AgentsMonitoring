@@ -54,9 +54,35 @@ def cell(value):
     if 'bars' in value:
         result['bars']=[]
         for b in objects(value['bars'],4):
+            if set(b)-{'label','percent','title','remaining','reset_label','reset_at','state'}: raise ValueError('Invalid bar')
             pct=number(b['percent'])
             if pct>100: raise ValueError('Invalid percent')
-            result['bars'].append({'label':text(b['label'],30),'percent':pct,'title':text(b.get('title',''))})
+            bar={'label':text(b['label'],30),'percent':pct,'title':text(b.get('title',''))}
+            # Optional gauge metadata: unknown remaining must stay null (never coerced to 0/100).
+            if 'remaining' in b:
+                rem=b['remaining']
+                if rem is None:
+                    bar['remaining']=None
+                else:
+                    rem=number(rem)
+                    if rem>100: raise ValueError('Invalid remaining')
+                    bar['remaining']=rem
+            if b.get('reset_label') is not None:
+                bar['reset_label']=text(str(b.get('reset_label')),40)
+            # Optional machine-readable reset moment (Unix epoch seconds) — lets the core show a
+            # live countdown and the cross-provider "Nejbližší resety" overview.
+            if b.get('reset_at') is not None:
+                ts=number(b['reset_at'])
+                if not 1_000_000_000<=ts<=10_000_000_000: raise ValueError('Invalid reset_at')
+                bar['reset_at']=int(ts)
+            state=b.get('state')
+            if state is not None:
+                state=text(str(state),24).upper()
+                if state not in ('OK','STALE','UNAVAILABLE','N/A','NEDOSTUPNÉ','VYČERPÁNO'):
+                    # Allow Czech UI states through as free text (bounded).
+                    pass
+                bar['state']=state
+            result['bars'].append(bar)
     return result
 
 
@@ -75,7 +101,9 @@ def row(raw, plugin):
                 aid=ident(a['id'])
                 if aid in seen: raise ValueError('Duplicate action')
                 seen.add(aid)
-                if a.get('icon','restart') not in ('restart','stop','run'): raise ValueError('Invalid icon')
+                # 'reset' = provider quota reset (e.g. a banked Codex reset credit): rendered as a
+                # labelled pill, since spending it is irreversible and must never look like ↻.
+                if a.get('icon','restart') not in ('restart','stop','run','reset'): raise ValueError('Invalid icon')
                 actions.append({'id':aid,'label':text(a['label'],160),'icon':a.get('icon','restart'),
                                 'confirm':text(a.get('confirm',''),240)})
             out[k]=actions
