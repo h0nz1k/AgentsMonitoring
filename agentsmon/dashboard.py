@@ -421,7 +421,7 @@ function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
 let paused=false, pollTimer=null;
-let tipSeq=0;
+let tipSeq=0, TIP_NS="g";   // tooltip ids: per-row namespace + counter → stable across polls
 let clockSkew=0;   // server time − browser time, so countdowns follow the host clock
 function nowSec(){ return Date.now()/1000+clockSkew; }
 function fmtIn(sec){
@@ -475,12 +475,12 @@ function renderResets(list){
   const items=list||[]; box.hidden=!items.length;
   if(items.length){
     const n=items[0], ex=items.filter(e=>e.exhausted);
-    box.querySelector(".resets-next").innerHTML=`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`;
-    box.querySelector(".resets-extra").innerHTML=
+    setHTML(box.querySelector(".resets-next"),`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
+    setHTML(box.querySelector(".resets-extra"),
       (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
-      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`;
+      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`);
   }
-  box.querySelector(".resets-list").innerHTML=items.map(e=>{
+  setHTML(box.querySelector(".resets-list"),items.map(e=>{
     const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
     const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
     const fc=e.exhausted?"":fcText(e.forecast);
@@ -491,7 +491,7 @@ function renderResets(list){
       `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
       `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
       (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
-  }).join("");
+  }).join(""));
 }
 
 const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
@@ -553,7 +553,7 @@ function renderServices(list){
   const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
   cnt.textContent=`${ok}/${list.length} v provozu`;
   const ul=q(root,".svc-list");
-  ul.innerHTML=list.map(s=>{ const r=serviceItem(s); return `<li class="${r.cls}"${r.attrs.id?` id="${esc(r.attrs.id)}"`:""}>${r.html}</li>`; }).join("");
+  patchRows(ul, list.map(s=>serviceItem(s)), "li");
 }
 function renderRows(root, rows, details=false){
   // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
@@ -631,7 +631,7 @@ function closeQuotaTips(except){
 }
 function renderAgentGauge(b){
   const m=gaugeMetrics(b);
-  const id="qtip-"+(++tipSeq);
+  const id="qtip-"+TIP_NS+"-"+(++tipSeq);
   const short=m.unavail?"—":`${Math.round(m.remShow)}%`;
   return `<span class="quota-wrap">`+
     `<button type="button" class="quota-gauge" aria-expanded="false" aria-describedby="${id}" title="${esc(m.tip)}" data-quota-tip>`+
@@ -668,6 +668,69 @@ function renderCell(cell, {compact=false}={}){
     return `<div class="quota-stack" title="${esc(cell.title||"")}">${shown.map(renderQuotaBar).join("")}</div>`;
   }
   return `<span title="${esc(cell.title||"")}" class="${tones[cell.tone]||''} whitespace-nowrap text-xs">${esc(cell.text||"–")}</span>`;
+}
+// ---- Incremental rendering: keyed rows (data-key="r:…") + per-row HTML string diff ----
+// A row's innerHTML is replaced only when its rendered string changed (countdown text excluded, it ticks
+// on its own); focus, open quota tooltips and open <details> (OPEN_DETAILS) survive the 15 s poll.
+const LAST_SIG={};
+function sectionChanged(k,v){ const s=JSON.stringify(v===undefined?null:v); if(LAST_SIG[k]===s) return false; LAST_SIG[k]=s; return true; }
+function cssEsc(s){ return (window.CSS&&CSS.escape)?CSS.escape(String(s)):String(s).replace(/["\\\[\]#.:]/g,"\\$&"); }
+function hashStr(s){ let h=5381; s=String(s); for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
+function normHtml(h){ return String(h).replace(/(data-reset-at="[^"]*"[^>]*>)[^<]*/g,"$1"); }
+function focusSel(a){
+  const d=a.dataset||{};
+  for(const k of ["act","copy","qtab","qfilter","acct","attn"]) if(d[k]!=null) return `[data-${k}="${cssEsc(d[k])}"]`;
+  if(a.id) return "#"+cssEsc(a.id);
+  if(a.tagName==="SUMMARY") return "summary";
+  const href=a.getAttribute&&a.getAttribute("href"); if(href) return `a[href="${cssEsc(href)}"]`;
+  const c=String(a.className||"").split(/\s+/).filter(Boolean)[0];
+  return a.tagName.toLowerCase()+(c?"."+cssEsc(c):"");
+}
+function saveUi(scope){
+  const f={tips:[...document.querySelectorAll(".quota-tip.open")].map(t=>t.id)}, a=document.activeElement;
+  if(a&&a!==document.body&&scope.contains(a)){
+    const det=a.closest("details[data-key]"), row=a.closest('[data-key^="r:"]');
+    f.a=a; f.sel=focusSel(a);
+    f.box=det&&scope.contains(det)?`details[data-key="${cssEsc(det.dataset.key)}"]`:row&&scope.contains(row)?`[data-key="${cssEsc(row.dataset.key)}"]`:null;
+  }
+  return f;
+}
+function restoreUi(scope,f){
+  if(f.a&&document.activeElement!==f.a){
+    let el=f.a.isConnected?f.a:null;
+    if(!el){ const box=f.box?scope.querySelector(f.box):scope; el=box&&f.sel?box.querySelector(f.sel):null; }
+    if(el) try{ el.focus({preventScroll:true}); }catch(_){}
+  }
+  f.tips.forEach(id=>{
+    const t=document.getElementById(id); if(!t||t.classList.contains("open")) return;
+    const b=document.querySelector(`[aria-describedby="${cssEsc(id)}"]`); if(!b) return;
+    t.classList.add("open"); b.setAttribute("aria-expanded","true"); placeTip(b,t);
+  });
+}
+function setHTML(el,html){
+  if(!el) return false;
+  const n=normHtml(html); if(el._h===n) return false;
+  const f=saveUi(el); el.innerHTML=html; el._h=n; restoreUi(el,f); return true;
+}
+function patchRows(parent,rows,tag){
+  // rows: [{key, html, cls, attrs}] → one element per key, reordered in place, innerHTML only when changed.
+  if(!parent) return;
+  const f=saveUi(parent), old=new Map(), seen=new Set();
+  [...parent.children].forEach(c=>{ const k=c.getAttribute("data-key"); if(k&&k.startsWith("r:")&&!old.has(k)) old.set(k,c); else c.remove(); });
+  let prev=null;
+  rows.forEach(r=>{
+    let k="r:"+r.key; while(seen.has(k)) k+="~"; seen.add(k);
+    let el=old.get(k);
+    if(el) old.delete(k); else { el=document.createElement(tag||"div"); el.setAttribute("data-key",k); }
+    const cls=r.cls||""; if(el.className!==cls) el.className=cls;
+    Object.entries(r.attrs||{}).forEach(([n,v])=>{ if(v==null){ if(el.hasAttribute(n)) el.removeAttribute(n); } else if(el.getAttribute(n)!==String(v)) el.setAttribute(n,String(v)); });
+    const n=normHtml(r.html); if(el._h!==n){ el.innerHTML=r.html; el._h=n; }
+    const want=prev?prev.nextSibling:parent.firstChild;
+    if(el!==want) parent.insertBefore(el,want);
+    prev=el;
+  });
+  old.forEach(el=>el.remove());
+  restoreUi(parent,f);
 }
 // ---- P1: account chips, quota cards, details disclosure ----
 let ACCTS={};                 // "table|row" → provider row (one account = one card)
@@ -775,7 +838,8 @@ function renderQuotaCard(r,table){
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
   const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
   const acts=renderActions(r,table,{lock:false});
-  return `<li class="quota-card${exh.length?" exhausted":""}"${r.anchor?` id="${esc(r.anchor)}"`:""} tabindex="-1">`+
+  tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
+  return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
     `<div class="qc-head"><span class="qc-name">${esc(r.name)}</span>`+
     (r.label?`<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${VENDOR[r.vendor]||VENDOR.other}">${esc(r.label)}</span>`:"")+
     `<span class="fresh ${f.cls}" title="${esc(f.reason||"stáří dat od poslední aktualizace poskytovatele")}">${esc(f.txt)}${f.reason?" · "+esc(f.reason):""}</span></div>`+
@@ -784,8 +848,7 @@ function renderQuotaCard(r,table){
     `<div class="qc-wins">${wins.map(renderWindow).join("")}`+
       textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
     (acts?`<div class="qc-actions">${acts}</div>`:"")+
-    (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")+
-  `</li>`;
+    (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
 }
 function renderQuotaSection(root,t){
   const rows=t.rows||[];
@@ -797,8 +860,8 @@ function renderQuotaSection(root,t){
   dot.className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
   cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
   cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"");
-  q(root,".quota-cards").innerHTML=rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc)).join("")
-    :`<li class="text-sm text-slate-400">${esc(t.error||"Žádné účty.")}</li>`;
+  patchRows(q(root,".quota-cards"), rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc))
+    :[{key:"empty",cls:"text-sm text-slate-400",html:esc(t.error||"Žádné účty.")}], "li");
   const note=q(root,".qc-note"), txt=[t.error,t.note].filter(Boolean).join(" ");
   note.hidden=!txt; q(note,".agents-note").textContent=txt;
 }
@@ -821,8 +884,9 @@ function cellFor(agent, col){
 }
 function renderColumns(root,columns,quotaCol=false){
   const head=q(root,"thead tr");
-  head.querySelectorAll(".plugin-column").forEach(n=>n.remove());
   const titles=columns.map(c=>c.title).concat(quotaCol?["Kvóta"]:[]);
+  const sig=JSON.stringify(titles); if(head.dataset.cols===sig) return; head.dataset.cols=sig;
+  head.querySelectorAll(".plugin-column").forEach(n=>n.remove());
   titles.forEach(t=>{const th=document.createElement("th");th.className="plugin-column text-left font-medium px-2 py-2";th.textContent=t;head.insertBefore(th,head.lastElementChild);});
 }
 function renderActions(a,table,{lock=true}={}){
@@ -859,13 +923,13 @@ function renderAgents(root, agents, summary=null, columns=[]){
     cnt.className="agents-count ml-auto text-sm font-medium "+state[2];
     q(root,".agents-note").textContent=summary.error||summary.note||"";
   }
-  if(!agents.length){tb.innerHTML=`<tr><td colspan="${6+columns.length+(quotaCol?1:0)}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"Žádní agenti."):"Žádné tmux relace.")}</td></tr>`;return;}
-  tb.innerHTML="";
+  if(!agents.length){patchRows(tb,[{key:"empty",html:`<td colspan="${6+columns.length+(quotaCol?1:0)}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"Žádní agenti."):"Žádné tmux relace.")}</td>`}],"tr");return;}
   const svgIcon=(d)=>`<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   const ICO_SESSION=svgIcon("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71");
   const ICO_PORT=svgIcon("M4 9h16M4 15h16M10 3v18M14 3v18");
   const ICO_NONE=svgIcon("M12 8v4M12 16h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0");
-  agents.forEach(a=>{
+  const rows=agents.map(a=>{
+    tipSeq=0; TIP_NS=hashStr((root.dataset.svc||"")+":"+(a.id||a.name));
     const tcls=VENDOR[a.vendor]||"bg-slate-100 text-slate-600";
     const copy=a.resume_cmd||a.session_id||"";
     let sid;
@@ -894,7 +958,7 @@ function renderAgents(root, agents, summary=null, columns=[]){
       workHtml=u?`<a class="work-link ${esc(w.state||"")}" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(wtip)}" aria-label="${esc(wtip)}">${inner}</a>`
         :`<span class="work-link ${esc(w.state||"")}" title="${esc(wtip)}">${inner}</span>`;
     }
-    const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
+    const cls="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
     const nameBg=NAME_BG[a.name_color];
     const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
     const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
@@ -903,7 +967,7 @@ function renderAgents(root, agents, summary=null, columns=[]){
       : nameInner;
     const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Otevřít @${esc(a.telegram_bot)} v Telegramu" aria-label="Telegram @${esc(a.telegram_bot)}" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9" aria-hidden="true"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
     const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
-    tr.innerHTML=
+    const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
       `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
       `<td class="px-2 py-1.5">${sid}</td>`+
@@ -912,8 +976,9 @@ function renderAgents(root, agents, summary=null, columns=[]){
       columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
       (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
-    tb.appendChild(tr);
+    return {key:a.id||a.name, cls, html};
   });
+  patchRows(tb, rows, "tr");
 }
 document.addEventListener("click",e=>{
   const btn=e.target.closest("[data-quota-tip]");
@@ -1029,15 +1094,14 @@ function qItem(it){
   if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
   const details=det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
     `<ul class="pod-body">${det.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`:"";
-  return `<li class="q-item">`+
+  return {key, cls:"q-item", html:
     `<span class="q-num">${num}</span>`+
     `<span class="q-title">${title}${mm}</span>`+
     `<span class="q-badge ${esc(it.state)}"><span aria-hidden="true">${st[0]}</span>${esc(label)}</span>`+
     `<span class="q-who" title="${esc(who)}">${who?esc(who):"–"}</span>`+
     `<span class="q-pr">${prHtml||'<span class="text-slate-300" aria-label="bez PR">–</span>'}</span>`+
     `<span class="q-age" title="${esc(it.updated_at?"aktualizováno "+fmtTime(it.updated_at):"")}">${esc(fmtAgo(it.age_seconds))}</span>`+
-    ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")+
-  `</li>`;
+    ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")};
 }
 function renderQueue(qd){
   const root=document.getElementById("fronta"); if(!root) return;
@@ -1055,21 +1119,21 @@ function renderQueue(qd){
   const ctrs=[["running",`běží ${n("running")}/${slots}`,""],["queued",`fronta ${n("queued")}`,""],
     ["awaiting_pickup",`čeká ${n("awaiting_pickup")}`,""],["blocked",`blok ${n("blocked")}`,n("blocked")?"warn":""],
     ["failed",`selhalo ${n("failed")}`,n("failed")?"bad":""],["done",`hotovo 24 h ${n("done_24h")}`,""]];
-  q(root,".q-counters").innerHTML=ctrs.map((c,i)=>(i?`<span class="q-sep" aria-hidden="true">·</span>`:"")+
-    `<button type="button" class="q-ctr ${c[2]}" data-qfilter="${c[0]}" aria-pressed="${QFILTER==="state:"+c[0]}" title="Filtrovat: ${esc(Q_STATE[c[0]][1])}">${esc(c[1])}</button>`).join("");
+  setHTML(q(root,".q-counters"),ctrs.map((c,i)=>(i?`<span class="q-sep" aria-hidden="true">·</span>`:"")+
+    `<button type="button" class="q-ctr ${c[2]}" data-qfilter="${c[0]}" aria-pressed="${QFILTER==="state:"+c[0]}" title="Filtrovat: ${esc(Q_STATE[c[0]][1])}">${esc(c[1])}</button>`).join(""));
   const gh=q(root,".q-gh"), repo=ghUrl(m.repo_url);
   gh.hidden=!repo; if(repo){ gh.href=repo; gh.title="Otevřít "+(m.repo||"repozitář")+" na GitHubu"; }
-  q(root,".q-tabs").innerHTML=Q_TABS.map(([id,lab])=>{
+  setHTML(q(root,".q-tabs"),Q_TABS.map(([id,lab])=>{
     const c=items.filter(it=>qMatch(it,id)).length, sel=!QFILTER&&QTAB===id;
     return `<button type="button" role="tab" class="q-tab" data-qtab="${id}" aria-selected="${sel}" aria-controls="q-panel">${esc(lab)} <span class="tabular-nums">(${c})</span></button>`;
-  }).join("");
+  }).join(""));
   const parts=[], errs=m.source_errors||[];
   if(m.stale&&!qd.loading) parts.push("Zastaralá data fronty"+(m.last_success_at?` – poslední úspěšné načtení ${fmtAgo(nowSec()-Number(m.last_success_at))}`:""));
   if(errs.length) parts.push("Chyby zdrojů: "+errs.join(" · "));
   const note=q(root,".q-note"); note.hidden=!parts.length; note.textContent=parts.join(". ");
   const view=QFILTER||QTAB, shown=items.filter(it=>qMatch(it,view));
-  q(root,".q-list").innerHTML=(qd.loading&&!items.length)?`<li class="q-empty">načítání…</li>`
-    :shown.length?shown.map(qItem).join(""):`<li class="q-empty">${QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}</li>`;
+  patchRows(q(root,".q-list"),(qd.loading&&!items.length)?[{key:"empty",cls:"q-empty",html:"načítání…"}]
+    :shown.length?shown.map(qItem):[{key:"empty",cls:"q-empty",html:QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}],"li");
 }
 function setQueueView(tab,filter){
   if(tab){ QTAB=tab; try{ localStorage.setItem(Q_TAB_KEY,tab); }catch(_){} }
@@ -1091,7 +1155,7 @@ function renderAttention(list,ov){
   box.hidden=!items.length;
   box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
   document.getElementById("attn-h").textContent=`Vyžaduje pozornost (${total})`;
-  q(box,".attn-list").innerHTML=items.map(a=>{
+  setHTML(q(box,".attn-list"),items.map(a=>{
     const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
     let link="";
     if(/^#[A-Za-z0-9_-]+$/.test(href)){
@@ -1107,11 +1171,11 @@ function renderAttention(list,ov){
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
     return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
       `<span class="attn-text"><span class="sr-only">${ic[1]}: </span>${esc(a.text_cs)}${cd}</span>${act}${link}</li>`;
-  }).join("");
+  }).join(""));
   const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
   const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
   pill.className="ovr "+(ov?lv:"");
-  pill.innerHTML=ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–";
+  setHTML(pill,ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–");
   const cnt=Number(ov&&ov.count)||0;
   document.title=(cnt?`(${cnt}) `:"")+"Monitorování agentů";
   if(lastAttnCount!==null&&cnt!==lastAttnCount)
@@ -1139,10 +1203,13 @@ function syncTables(box,list,all,d){
       root.dataset.svc=t.id; box.appendChild(root);
     });
     box.dataset.keys=wanted;
+    list.forEach(t=>{ delete LAST_SIG["t:"+t.id]; });
   }
   list.forEach((t,i)=>{
-    const root=box.children[i], h=q(root,"h2"); if(h.textContent!==t.title) h.textContent=t.title; if(t.anchor) root.id=t.anchor;
-    if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
+    const root=box.children[i], h=q(root,"h2"); if(h.textContent!==t.title) h.textContent=t.title; if(t.anchor&&root.id!==t.anchor) root.id=t.anchor;
+    if(sectionChanged("t:"+t.id,t.kind==="quota"?t:[t,d.columns])){
+      if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
+    }
     initCollapse(root,t.id,all.indexOf(t)+1);
   });
 }
@@ -1150,23 +1217,25 @@ async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
     if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
-    renderResets(d.resets);
-    try{ renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
+    if(sectionChanged("resets",d.resets)) renderResets(d.resets);
+    try{ if(sectionChanged("attention",[d.attention,d.overall])) renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
     ACCTS={};
     (d.agent_tables||[]).forEach(t=>{ if(t.kind==="quota") (t.rows||[]).forEach(r=>{ ACCTS[t.id+"|"+r.id]=r; }); });
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
-    renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
-    try{ renderQueue(d.queue); }catch(err){ console.error("queue",err); }
+    if(sectionChanged("agents",[d.agents,d.columns,d.agent_tables])) renderAgents(agentsRoot, d.agents, null, d.columns||[]);
+    initCollapse(agentsRoot,"agents",0);
+    try{ if(sectionChanged("queue",d.queue)) renderQueue(d.queue); }catch(err){ console.error("queue",err); }
     const allTables=d.agent_tables||[];
     syncTables(document.getElementById("plugin-agent-tables"), allTables.filter(t=>t.kind!=="quota"), allTables, d);
     syncTables(document.getElementById("plugin-tables"), allTables.filter(t=>t.kind==="quota"), allTables, d);
-    document.getElementById("plugin-loading").hidden=!d.plugin_loading;
-    const errors=document.getElementById("plugin-errors"); errors.replaceChildren();
-    (d.plugin_errors||[]).forEach(p=>{
+    const pl=document.getElementById("plugin-loading"); if(pl.hidden!==!d.plugin_loading) pl.hidden=!d.plugin_loading;
+    const errors=document.getElementById("plugin-errors");
+    if(sectionChanged("plugin_errors",d.plugin_errors)) errors.replaceChildren();
+    if(!errors.childElementCount) (d.plugin_errors||[]).forEach(p=>{
       const box=document.createElement("div"); box.className="mb-4 border border-rose-200 bg-rose-50 rounded-lg p-3";
       box.textContent=p.name+": "+p.detail; errors.appendChild(box);
     });
-    renderServices(d.services||[]);
+    if(sectionChanged("services",d.services)) renderServices(d.services||[]);
     document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
