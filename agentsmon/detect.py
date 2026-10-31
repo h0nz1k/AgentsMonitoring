@@ -853,8 +853,8 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
             "identity_conflict": row.get('identity_conflict', False),
         })
         if kind in ('codex', 'claude-code'):
-            pane = _run([_tmux_bin(), 'capture-pane', '-p', '-t', row['name']])
-            if pane and pane.returncode == 0 and login_screen(kind, pane.stdout):
+            pane = capture_pane(row['name'], now)
+            if pane and login_screen(kind, pane):
                 agents[-1].update(needs_login=True, status='Needs login')
     return agents
 
@@ -874,10 +874,117 @@ def login_screen(kind: str, text: str) -> bool:
     return False
 
 
+# ---- "Čeká na vstup": a tmux agent blocked on a human (approval / confirmation / login) ----------
+#: Agent kinds (lowercase) whose TUI is inspected. Read-only: capture-pane, never send-keys.
+WAITING_KINDS = {"claude-code", "codex", "cursor", "antigravity"}
+#: Case-insensitive regexes matched against the last WAITING_TAIL_LINES non-empty pane lines.
+#: Override with config ``detect.waiting_patterns`` (a list; ``[]`` disables the detection).
+DEFAULT_WAITING_PATTERNS = [
+    r"\bDo you want to (proceed|continue|make this edit|create|run|allow|apply|overwrite)\b",
+    r"^[❯›>●○]?\s*1\.\s*Yes\b",
+    r"\bYes, (allow|and don't ask|proceed|apply)\b",
+    r"\bAllow (command|execution|this|once|always|edit|tool|access)\b.*\?",
+    r"\bWould you like to (run|make|apply|allow|proceed)\b",
+    r"\bRun (this )?command\?",
+    r"\bApprove\b.*\?|\b(approval|confirmation) (required|needed)\b",
+    r"\bWaiting for (your |user )?(approval|input|confirmation)\b",
+    r"\bPress (Enter|any key|return) to (continue|confirm|retry|proceed|sign in|log in|login)\b",
+    r"\((y/n|y/N|Y/n)\)|\[(y/n|y/N|Y/n)\]",
+    r"\bSign in with ChatGPT\b|\b(Please run|Run) /login\b|\bPaste (the )?(code|token) here\b",
+    r"\b(Log|Sign) in to (Cursor|Google|Antigravity)\b",
+]
+WAITING_TAIL_LINES = 12
+PANE_TTL = 10.0
+PANE_TIMEOUT = 2.0
+HINT_MAX = 120
+_PANE_CACHE: dict[str, tuple[float, str | None]] = {}
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
+
+
+def capture_pane(session: str, now: float | None = None, ttl: float = PANE_TTL) -> str | None:
+    """Last ~30 lines + visible screen of a tmux pane; cached ``ttl`` s, 2 s timeout, None on error."""
+    now = time.time() if now is None else now
+    hit = _PANE_CACHE.get(session)
+    if hit and 0 <= now - hit[0] < ttl:
+        return hit[1]
+    r = _run([_tmux_bin(), "capture-pane", "-p", "-t", session, "-S", "-30"], timeout=PANE_TIMEOUT)
+    text = r.stdout if r is not None and r.returncode == 0 else None
+    _PANE_CACHE[session] = (now, text)
+    if len(_PANE_CACHE) > 64:
+        for k, (ts, _) in list(_PANE_CACHE.items()):
+            if now - ts >= ttl:
+                _PANE_CACHE.pop(k, None)
+    return text
+
+
+def sanitize_hint(text: str, limit: int = HINT_MAX) -> str:
+    """One pane line made safe for /api/state: no ANSI/control chars, secrets masked, ≤ limit."""
+    t = ANSI_RE.sub("", str(text or ""))
+    t = re.sub(r"[\x00-\x1f\x7f]", " ", t)
+    t = re.sub(r"(?i)\b(bearer|token|api[_-]?key|secret|password|passwd|pwd|authorization)"
+               r"(\s*[:=]\s*|\s+)[^\s\"']+", r"\1\2•••", t)
+    t = re.sub(r"\b\d{6,}:[A-Za-z0-9_-]{20,}", "•••", t)
+    t = re.sub(r"\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|glpat|xox[abpr]|AIza|ya29)[-_A-Za-z0-9.]{8,}", "•••", t)
+    t = re.sub(r"[A-Za-z0-9_+=-]{24,}", "•••", t)
+    t = re.sub(r"([?&][^=\s&]+=)[^&\s]+", r"\1•••", t)
+    t = " ".join(t.split())
+    return t if len(t) <= limit else t[: limit - 1] + "…"
+
+
+def _compile_patterns(patterns) -> list:
+    out = []
+    for p in patterns or []:
+        try:
+            out.append(re.compile(str(p), re.I))
+        except re.error:
+            continue
+    return out
+
+
+def waiting_prompt(text: str | None, patterns=None, tail: int = WAITING_TAIL_LINES) -> str | None:
+    """Sanitized hint (the first matching line of the pane's tail) when the TUI waits for a human."""
+    if not text:
+        return None
+    pats = _compile_patterns(DEFAULT_WAITING_PATTERNS if patterns is None else patterns)
+    if not pats:
+        return None
+    lines = [ln.strip().strip("│┃╭╮╰╯─ ").strip() for ln in ANSI_RE.sub("", text).splitlines()]
+    lines = [ln for ln in lines if ln][-tail:]
+    for ln in lines:
+        if any(rx.search(ln) for rx in pats):
+            return sanitize_hint(ln) or "čeká na vstup"
+    return None
+
+
+def waiting_patterns(cfg: dict | None):
+    pats = ((cfg or {}).get("detect") or {}).get("waiting_patterns")
+    return pats if isinstance(pats, list) else None
+
+
+def annotate_waiting(rows: list[dict], cfg: dict | None = None, now: float | None = None) -> None:
+    """Mark live tmux agents whose pane shows an approval/confirmation/login prompt:
+    ``waiting=True, activity='waiting', status='Čeká na vstup', waiting_hint=<≤120 chars>``."""
+    pats = waiting_patterns(cfg)
+    if pats is not None and not pats:
+        return
+    for row in rows:
+        if not row.get("alive") or row.get("needs_login") or row.get("kind") == "daemon":
+            continue
+        if str(row.get("kind") or "").lower() not in WAITING_KINDS:
+            continue
+        hint = waiting_prompt(capture_pane(row.get("tmux_session") or row["name"], now), pats)
+        if hint:
+            row.update(waiting=True, activity="waiting", status="Čeká na vstup", waiting_hint=hint)
+
+
 def configured_agents(cfg: dict) -> list[dict]:
     """Include configured agents even after their tmux session was stopped."""
     from . import config
     rows = discover_agents(config.agent_matches(cfg))
+    try:
+        annotate_waiting(rows, cfg)
+    except Exception:            # pane heuristics must never hide an agent
+        pass
     names = {r['name'] for r in rows}
     for entry in cfg.get('agents', []):
         if entry['name'] not in names:
