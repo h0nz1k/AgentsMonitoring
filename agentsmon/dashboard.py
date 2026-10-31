@@ -1509,6 +1509,11 @@ def _state_data() -> dict:
             "plugin_loading": extra.get('loading', False),
             "core": core_status(), "services": services,
             "queue": workqueue.get(cfg)}
+    try:
+        assign_agent_work(agents, data["queue"])
+    except Exception:                             # a queue quirk must never break /api/state
+        for a in agents:
+            a["work"] = None
     data["attention"], data["overall"] = compute_attention(data)
     return data
 
@@ -1585,6 +1590,8 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                 add("critical", f"Agent {name}: neběží", href)
             elif a.get("needs_login"):
                 add("warning", f"Agent {name}: čeká na přihlášení", href)
+            elif a.get("waiting"):
+                add("warning", f"{name} čeká na vstup", href)
         for t in data.get("agent_tables") or []:
             if t.get("kind") != "quota":
                 continue
@@ -1665,6 +1672,88 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
         overall = {"level": "ok", "text_cs": "Vše v provozu"}
     overall.update(count=count, total=len(out))
     return out[:ATTENTION_MAX], overall
+
+
+# ---- "pracuje na #N": which queue item each agent is working on (deterministic, never guessed) ----
+#: Queue states that can belong to an agent, best first. Done/failed items are history, not work.
+WORK_STATES = ("running", "awaiting_pickup", "blocked", "queued")
+#: worker/lane token (lowercase alnum, suffix-stripped) → agent ``kind`` for kinds that run once.
+WORKER_KINDS = {"cursor": "cursor", "claude": "claude-code", "claudecode": "claude-code",
+                "codex": "codex", "antigravity": "antigravity", "agy": "antigravity",
+                "gemini": "antigravity"}
+_WORKER_SUFFIXES = ("json", "cli", "agent", "worker", "lane")
+
+
+def _norm_token(value) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _worker_key(worker) -> str:
+    n = _norm_token(worker)
+    for suf in _WORKER_SUFFIXES:
+        if n.endswith(suf) and len(n) > len(suf):
+            n = n[: -len(suf)]
+    return n
+
+
+def _agents_for_worker(worker, agents: list) -> list:
+    """Agents a ``worker:`` label / supervisor lane refers to: exact agent name first
+    (``worker:lana`` → LANA), then the agent kind (``cursor_json`` → the Cursor agent)."""
+    raw, key = _norm_token(worker), _worker_key(worker)
+    if not key:
+        return []
+    named = [a for a in agents if _norm_token(a.get("name")) in (raw, key)]
+    if named:
+        return named
+    kind = WORKER_KINDS.get(key)
+    return [a for a in agents if kind and str(a.get("kind") or "").lower() == kind]
+
+
+def _agents_for_profile(profile, agents: list) -> list:
+    """``profile:lana`` without a worker = the Hermes profile daemon itself (``LANA (Hermes)``)."""
+    p = _norm_token(profile)
+    return [a for a in agents if p and a.get("kind") == "daemon"
+            and _norm_token(a.get("name")) == p + "hermes"]
+
+
+def assign_agent_work(agents: list, queue: dict | None) -> None:
+    """Set ``agent["work"] = {issue, kind, url, title, state, state_label_cs}`` or ``None``.
+
+    An item maps to an agent through its explicit worker (label ``worker:`` or the supervisor
+    lane); only items without any worker fall back to ``profile:``. Anything that maps to zero or
+    several agents is skipped, and an agent with several items in its best state gets ``None`` —
+    the dashboard never guesses."""
+    for a in agents:
+        a["work"] = None
+    qd = queue or {}
+    if not qd.get("enabled"):
+        return
+    picked: dict[int, tuple] = {}
+    for it in qd.get("items") or []:
+        if not isinstance(it, dict) or it.get("state") not in WORK_STATES or not it.get("tracked"):
+            continue
+        task = it.get("task") or {}
+        workers = [w for w in (it.get("worker"), task.get("lane")) if w]
+        targets: list = []
+        for w in workers:
+            targets = _agents_for_worker(w, agents)
+            if targets:
+                break
+        if not workers and it.get("profile"):
+            targets = _agents_for_profile(it.get("profile"), agents)
+        if len(targets) != 1:
+            continue
+        picked.setdefault(id(targets[0]), (targets[0], []))[1].append(it)
+    for agent, items in picked.values():
+        best = min(WORK_STATES.index(i["state"]) for i in items)
+        top = [i for i in items if WORK_STATES.index(i["state"]) == best]
+        if len(top) != 1:
+            continue
+        i = top[0]
+        num = i.get("issue") or (i.get("pr") or {}).get("number")
+        agent["work"] = {"issue": num if isinstance(num, int) else None, "kind": i.get("kind"),
+                         "url": _gh(i.get("url")), "title": str(i.get("title") or "")[:160],
+                         "state": i.get("state"), "state_label_cs": i.get("state_label_cs")}
 
 
 def upcoming_resets(tables: list, agents: list, now: float | None = None, limit: int = 24) -> list:
