@@ -211,6 +211,23 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 @media (min-width:1440px){
   .quota-track{max-width:7rem}
 }
+.layout{display:block}
+.col-main,.col-side{min-width:0}
+@media (min-width:1280px){
+  .layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:1.25rem;align-items:start}
+}
+.svc-list{list-style:none;margin:0;padding:0;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff}
+.svc-item{padding:.25rem .75rem;border-top:1px solid #f1f5f9;scroll-margin:1rem;min-width:0}
+.svc-item:first-child{border-top:0}
+.svc-row{display:flex;flex-wrap:wrap;align-items:center;gap:.1rem .6rem;min-height:var(--touch);font-size:13px}
+.svc-ico{flex:0 0 1.2rem;text-align:center;font-weight:700}
+.svc-nm{flex:1 1 10rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.svc-st{font-size:12px;font-weight:600;white-space:nowrap}
+.svc-lat{font-size:12px;color:#64748b;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:4.5rem;text-align:right}
+.svc-note{font-size:12px;color:#64748b;margin:0 0 .25rem 1.8rem;overflow-wrap:anywhere}
+.svc-more{margin-left:1.8rem;min-width:0}
+.svc-more>summary{min-height:2.25rem;line-height:2.25rem}
+@media (max-width:639px){.svc-more,.svc-note{margin-left:0}.svc-more>summary{min-height:var(--touch);line-height:var(--touch)}.svc-lat{min-width:0}}
 @media (prefers-reduced-motion:reduce){
   .bar,#toast,.copied-flash{transition:none!important}
 }
@@ -322,6 +339,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
   .quota-state.unavail{color:#64748b}
   .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+  .svc-list{background:#0f172a;border-color:#1e293b}.svc-item{border-color:#1e293b}.svc-lat,.svc-note{color:#94a3b8}
   .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}.work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
   .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}.st-wait{color:#fbbf24}
   .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
@@ -356,70 +374,26 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
     <button type="button" id="btn-refresh" title="Obnovit teď">Obnovit</button>
     <button type="button" id="btn-pause" aria-pressed="false" title="Pozastavit automatickou obnovu">Pozastavit obnovu</button>
   </div>
-AGENT_TABLES
-  <div id="services"></div>
-  <p class="text-center text-[11px] text-slate-300" id="footer">automatická obnova</p>
+<div class="layout">
+<div class="col-main">
+AGENT_TABLES_MAIN
 </div>
-
-<template id="svc-tpl">
-  <section class="mb-6">
+<div class="col-side">
+AGENT_TABLES_SIDE
+  <section id="services" class="mb-6 svc-section" data-svc="services" hidden aria-label="Služby">
     <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
       <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
-      <h2 class="svc-name text-base font-semibold"></h2>
-      <span class="svc-state ml-auto text-sm font-medium text-slate-400">načítání…</span>
+      <h2 class="text-base font-semibold">Služby</h2>
+      <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
       <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
-    <p class="svc-detail text-xs text-slate-500 mb-3 px-1" role="status"></p>
-    <div class="svc-body">
-    <div class="metric-grid mb-3">
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-400">Doba běhu</p>
-        <p class="m-uptime text-lg font-semibold mt-0.5">–</p>
-        <p class="text-[11px] text-slate-400">od první kontroly nebo posledního výpadku</p>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-400">Dostupnost</p>
-        <p class="m-sla text-lg font-semibold mt-0.5">–</p>
-        <p class="m-sla-sub text-[11px] text-slate-400">SLA</p>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-white p-3">
-        <p class="m-x-label text-[11px] uppercase tracking-wide text-slate-400">Latence</p>
-        <p class="m-x text-lg font-semibold mt-0.5">–</p>
-        <p class="m-x-sub text-[11px] text-slate-400">kontrola zdraví</p>
-      </div>
-    </div>
-    <div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-3" hidden>
-      <table class="w-full text-sm"><thead>
-        <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
-          <th class="text-left font-medium px-2 py-2">Kontrola</th>
-          <th class="rows-value-label text-left font-medium px-2 py-2">Adresa</th>
-          <th class="text-left font-medium px-2 py-2">Latence</th>
-          <th class="text-left font-medium px-2 py-2">Běh</th>
-          <th class="text-left font-medium px-2 py-2">Stav</th>
-        </tr></thead>
-        <tbody class="svc-rows"></tbody>
-      </table>
-    </div>
-    <div class="rounded-lg border border-slate-200 bg-white p-4">
-      <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
-        <h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3>
-        <span class="svc-tl-window text-[11px] text-slate-400"></span>
-      </div>
-      <div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti"></div>
-      <div class="flex items-center justify-between mt-2 text-[11px] text-slate-400 flex-wrap gap-2">
-        <span class="svc-tl-start"></span>
-        <div class="flex items-center gap-3">
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>
-          <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span>
-        </div>
-        <span>teď</span>
-      </div>
-    </div>
-    </div>
+    <div class="svc-body"><ul class="svc-list" role="list"></ul></div>
   </section>
-</template>
-
+</div>
+</div>
+  <p class="text-center text-[11px] text-slate-300" id="footer">automatická obnova</p>
+</div>
+AGENT_TABLES_TEMPLATES
 <script>
 const STATE = {
   operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
@@ -520,56 +494,75 @@ function renderResets(list){
   }).join("");
 }
 
-function renderTimeline(root, buckets, windowDays){
-  const tl=q(root,".svc-timeline"); tl.innerHTML=""; const GREEN=98;
-  buckets.forEach(b=>{
-    const el=document.createElement("div"); let cls,status;
+const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
+function timelineHtml(buckets, windowDays){
+  const GREEN=98;
+  const bars=(buckets||[]).map(b=>{
+    let cls,status;
     if(b.uptime_pct==null){cls="bg-slate-200";status="bez dat";}
     else if(b.uptime_pct>=GREEN){cls="bg-emerald-500";status=`${b.uptime_pct} % dostupnost`;}
     else{cls="bg-rose-500";status=`výpadek (${b.uptime_pct} % dostupnost)`;}
-    el.className="bar flex-1 rounded-sm h-full "+cls;
-    el.title=`${new Date(b.start*1000).toLocaleDateString(LOCALE)} · ${status}`;
-    tl.appendChild(el);
-  });
-  q(root,".svc-tl-window").textContent="posledních "+windowDays+" dní";
-  if(buckets.length) q(root,".svc-tl-start").textContent=new Date(buckets[0].start*1000).toLocaleDateString(LOCALE);
+    return `<div class="bar flex-1 rounded-sm h-full ${cls}" title="${esc(new Date(b.start*1000).toLocaleDateString(LOCALE)+" · "+status)}"></div>`;
+  }).join("");
+  const start=(buckets&&buckets.length)?new Date(buckets[0].start*1000).toLocaleDateString(LOCALE):"";
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
+    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-[11px] text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
+    `<div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti za posledních ${esc(windowDays)} dní">${bars}</div>`+
+    `<div class="flex items-center justify-between mt-2 text-[11px] text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
+    `<div class="flex items-center gap-3 flex-wrap"><span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>`+
+    `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>`+
+    `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span></div><span>teď</span></div></div>`;
 }
-function renderService(root, s){
-  const st=STATE[s.state]||STATE.nodata;
-  const detail=q(root,".svc-detail");
-  if(detail) detail.textContent=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty níže nejsou aktuální. `:"")+(s.detail||"");
-  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+st[3];
-  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+st[0];
-  const se=q(root,".svc-state"); se.textContent=st[1]; se.className="svc-state ml-auto text-sm font-medium "+st[2];
-  q(root,".m-uptime").textContent=fmtDuration(s.uptime_seconds);
-  q(root,".m-sla").textContent=s.sla!=null?s.sla.toFixed(2)+" %":"–";
-  q(root,".m-sla-sub").textContent="za "+s.sla_window_days+" dní ("+(s.sla_samples||0)+" vzorků)";
-  if(s.metric==="agents"){
-    q(root,".m-x-label").textContent="Agenti";
-    q(root,".m-x").textContent=(s.metric_value!=null?s.metric_value:"–")+(s.metric_value!=null?" běží":"");
-    q(root,".m-x-sub").textContent="živě v tmux";
-  }else if(s.metric==="system_latency"){
-    q(root,".m-x-label").textContent="Průměrná latence";
-    q(root,".m-x").textContent=fmtLat(s.system_latency_ms);
-    q(root,".m-x-sub").textContent=(s.system_latency_n||0)+" zdroj"+(s.system_latency_n===1?"":"ů");
-  }else if(s.metric==="avg_latency"){
-    q(root,".m-x-label").textContent="Průměrná latence";
-    q(root,".m-x").textContent=fmtLat(s.avg_latency_ms);
-    q(root,".m-x-sub").textContent="za "+s.sla_window_days+" dní";
-  }else{
-    q(root,".m-x-label").textContent="Latence";
-    q(root,".m-x").textContent=fmtLat(s.latency_ms);
-    q(root,".m-x-sub").textContent=s.metric_sub||"kontrola zdraví";
-  }
-  renderTimeline(root, s.timeline, s.timeline_days);
-  renderRows(root, s.rows||[], s.row_details===true);
+function svcMetric(s){
+  if(s.metric==="agents") return {label:"Agenti",value:s.metric_value!=null?s.metric_value+" běží":"–",sub:"živě v tmux"};
+  if(s.metric==="system_latency") return {label:"Průměrná latence",value:fmtLat(s.system_latency_ms),sub:(s.system_latency_n||0)+" zdroj"+(s.system_latency_n===1?"":"ů")};
+  if(s.metric==="avg_latency") return {label:"Průměrná latence",value:fmtLat(s.avg_latency_ms),sub:"za "+s.sla_window_days+" dní"};
+  return {label:"Latence",value:fmtLat(s.latency_ms),sub:s.metric_sub||"kontrola zdraví"};
+}
+function metricTile(label,value,sub){
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-[11px] uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
+    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-[11px] text-slate-400">${esc(sub)}</p></div>`;
+}
+// One compact list row per service: icon + name + state + latency; history & metric tiles behind a disclosure.
+function serviceItem(s, root=null){
+  const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
+  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+(s.detail||"");
+  const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
+      `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
+      `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
+      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span></div>`+
+    (note?`<p class="svc-note">${esc(note)}</p>`:"")+
+    `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
+      `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
+      `${metricTile("Dostupnost",s.sla!=null?s.sla.toFixed(2)+" %":"–","za "+s.sla_window_days+" dní ("+(s.sla_samples||0)+" vzorků)")}`+
+      `${metricTile(m.label,m.value,m.sub)}</div>`+
+      renderRows(root, s.rows||[], s.row_details===true)+
+      timelineHtml(s.timeline, s.timeline_days)+
+    `</details>`;
+  return {key:s.name, cls:"svc-item", attrs:{id:s.anchor||null}, html};
+}
+function renderServices(list){
+  const root=document.getElementById("services"); if(!root) return;
+  root.hidden=!list.length; if(!list.length) return;
+  initCollapse(root,"services",1);
+  const bad=list.filter(s=>s.state==="outage").length, stale=list.filter(s=>s.state==="stale").length;
+  const ok=list.filter(s=>s.state==="operational").length;
+  const look=bad?STATE.outage:stale?STATE.stale:ok?STATE.operational:STATE.nodata;
+  q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  cnt.textContent=`${ok}/${list.length} v provozu`;
+  const ul=q(root,".svc-list");
+  ul.innerHTML=list.map(s=>{ const r=serviceItem(s); return `<li class="${r.cls}"${r.attrs.id?` id="${esc(r.attrs.id)}"`:""}>${r.html}</li>`; }).join("");
 }
 function renderRows(root, rows, details=false){
-  const wrap=q(root,".svc-rows-wrap"); if(!wrap) return;
-  wrap.hidden=!rows.length; if(!rows.length) return;
-  q(root,".rows-value-label").textContent=details?"Detail":"Adresa";
-  const tb=q(root,".svc-rows");
-  tb.innerHTML=rows.map(r=>{
+  // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
+  if(!rows.length) return "";
+  return `<div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-2"><table class="w-full text-sm"><thead>`+
+    `<tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
+    `<th class="rows-value-label text-left font-medium px-2 py-2">${details?"Detail":"Adresa"}</th><th class="text-left font-medium px-2 py-2">Latence</th>`+
+    `<th class="text-left font-medium px-2 py-2">Běh</th><th class="text-left font-medium px-2 py-2">Stav</th></tr></thead><tbody class="svc-rows">`+
+  rows.map(r=>{
     const st=STATE[r.state]||STATE.nodata;
     const addr=r.url?r.url.replace(/^https?:\/\//,"").replace(/\/$/,""):"";
     const staleTip=r.stale?`zastaralá data: poslední před ${fmtDuration(r.data_age)} · `:"";
@@ -580,7 +573,7 @@ function renderRows(root, rows, details=false){
       `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap">${fmtLat(r.latency_ms)}</td>`+
       `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap" title="čas od posledního skutečného výpadku${esc(sla)}">${fmtDuration(r.uptime_seconds)}</td>`+
       `<td class="px-2 py-1.5" title="${esc(staleTip)}${esc(r.detail||"")}${r.last_ts?" · "+esc(fmtTime(r.last_ts)):""}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${st[2]}"><span class="h-2 w-2 rounded-full ${st[0]} shrink-0" aria-hidden="true"></span>${st[1]}</span></td>`+
-    `</tr>`;}).join("");
+    `</tr>`;}).join("")+`</tbody></table></div>`;
 }
 function quotaStateClass(state){
   const s=String(state||"").toUpperCase();
@@ -1131,9 +1124,28 @@ document.addEventListener("click",e=>{
   e.preventDefault();
   const sec=el.closest("section"); if(sec&&sec.dataset.collapsed==="1") setCollapsed(sec,false,true);
   if(a.dataset.qtabGo) setQueueView(a.dataset.qtabGo,null);
+  const more=el.matches&&el.matches(".svc-item")?q(el,"details.svc-more"):null; if(more&&!more.open) more.open=true;
   const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
 });
+function syncTables(box,list,all,d){
+  // Plugin agent tables live in the left column, quota tables in the right one; rebuilt only when the set changes.
+  const wanted=list.map(t=>t.id+"/"+(t.kind||"")).join("|");
+  if(box.dataset.keys!==wanted){
+    box.innerHTML="";
+    list.forEach(t=>{
+      const tplId=t.kind==="quota"?"quota-table-tpl":"agent-table-tpl";
+      const root=document.getElementById(tplId).content.firstElementChild.cloneNode(true);
+      root.dataset.svc=t.id; box.appendChild(root);
+    });
+    box.dataset.keys=wanted;
+  }
+  list.forEach((t,i)=>{
+    const root=box.children[i], h=q(root,"h2"); if(h.textContent!==t.title) h.textContent=t.title; if(t.anchor) root.id=t.anchor;
+    if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
+    initCollapse(root,t.id,all.indexOf(t)+1);
+  });
+}
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
@@ -1145,34 +1157,16 @@ async function refresh(){
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
     renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
     try{ renderQueue(d.queue); }catch(err){ console.error("queue",err); }
-    const tables=document.getElementById("plugin-tables");
-    const wanted=(d.agent_tables||[]).map(t=>t.id+"/"+(t.kind||"")).join("|");
-    if(tables.dataset.keys!==wanted){
-      tables.innerHTML="";
-      (d.agent_tables||[]).forEach(t=>{
-        const tplId=t.kind==="quota"?"quota-table-tpl":"agent-table-tpl";
-        const root=document.getElementById(tplId).content.firstElementChild.cloneNode(true);
-        root.dataset.svc=t.id; tables.appendChild(root);
-      });
-      tables.dataset.keys=wanted;
-    }
-    (d.agent_tables||[]).forEach((t,i)=>{
-      const root=tables.children[i]; q(root,"h2").textContent=t.title; if(t.anchor) root.id=t.anchor;
-      if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
-      initCollapse(root,t.id,i+1);
-    });
+    const allTables=d.agent_tables||[];
+    syncTables(document.getElementById("plugin-agent-tables"), allTables.filter(t=>t.kind!=="quota"), allTables, d);
+    syncTables(document.getElementById("plugin-tables"), allTables.filter(t=>t.kind==="quota"), allTables, d);
     document.getElementById("plugin-loading").hidden=!d.plugin_loading;
     const errors=document.getElementById("plugin-errors"); errors.replaceChildren();
     (d.plugin_errors||[]).forEach(p=>{
       const box=document.createElement("div"); box.className="mb-4 border border-rose-200 bg-rose-50 rounded-lg p-3";
       box.textContent=p.name+": "+p.detail; errors.appendChild(box);
     });
-    const box=document.getElementById("services"); const tpl=document.getElementById("svc-tpl");
-    if(box.childElementCount!==d.services.length){
-      box.innerHTML=""; d.services.forEach(()=>box.appendChild(tpl.content.cloneNode(true)));
-    }
-    const sections=box.querySelectorAll("section");
-    d.services.forEach((s,i)=>{ const root=sections[i]; if(s.anchor) root.id=s.anchor; q(root,".svc-name").textContent=serviceDisplayName(s.name); renderService(root,s); initCollapse(root,s.name,i+1+(d.agent_tables||[]).length); });
+    renderServices(d.services||[]);
     document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
@@ -1229,21 +1223,21 @@ initResetsPanel(); refresh(); schedulePoll();
 </script></body></html>"""
 
 
-PAGE=PAGE.replace('AGENT_TABLES',
+PAGE=PAGE.replace('AGENT_TABLES_MAIN',
     AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
         .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
         .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
-    QUEUE_SECTION+
+    QUEUE_SECTION+'<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
     '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
     '<details class="resets-details">'
     '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
     '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
     '<span class="resets-extra text-xs"></span></summary>'
     '<p class="text-[11px] text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
-    '<ul class="resets-list"></ul></details></section>'+
-    '<div id="plugin-tables"></div>'+
+    '<ul class="resets-list"></ul></details></section>'
+    '<div id="plugin-tables"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
-    'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>'+
+    'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
     QUOTA_SECTION+
     '<template id="agent-table-tpl">'+AGENT_TABLE.replace('KEY','plugin').replace('HIDDEN','')
         .replace('TITLE','Agenti').replace('NOTE','')+'</template>')
