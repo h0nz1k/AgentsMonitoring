@@ -22,7 +22,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, db, detect, keepalive, probe, plugins
+from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota
 
 
 def password_hash(password: str) -> str:
@@ -111,6 +111,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .reset-chip .reset-meta{color:#64748b}
 .reset-chip.exhausted{border-color:#fda4af;background:#fff1f2}
 .reset-chip.exhausted .reset-when{color:#be123c}
+.reset-chip .reset-fc{color:#64748b;font-style:italic}
+.reset-chip .reset-fc.warn{color:#b45309;font-weight:600;font-style:normal}
+.reset-chip.will-exhaust{border-color:#fcd34d;background:#fffbeb}
 .quota-track{flex:1 1 3.5rem;min-width:2.5rem;max-width:5.5rem;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}
 .quota-fill{display:block;height:100%;border-radius:999px}
 .quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
@@ -171,6 +174,8 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
   .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
   .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
+  .reset-chip .reset-fc{color:#94a3b8}.reset-chip .reset-fc.warn{color:#fbbf24}
+  .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
   .quota-state.unavail{color:#64748b}
   .quota-gauge[aria-expanded="true"]{background:#1e293b}
   .quota-tip{background:#e2e8f0;color:#0f172a}
@@ -304,17 +309,33 @@ function tickResets(){
   });
 }
 setInterval(tickResets, 30000);
+// Burn-rate forecast (server: agentsmon/quota.py) → short Czech phrase, "" when unknown.
+function fcClock(ts){
+  const d=new Date(ts*1000), n=new Date(nowSec()*1000);
+  const hm=d.toLocaleTimeString(LOCALE,{hour:"2-digit",minute:"2-digit"});
+  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{day:"numeric",month:"numeric"})+" "+hm;
+}
+function fcText(f){
+  if(!f) return "";
+  if(f.will_exhaust_before_reset&&f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)} (před resetem)`;
+  if(f.projected_at_reset!=null) return `při resetu ~${Math.round(Number(f.projected_at_reset))} %`;
+  if(f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)}`;
+  return "";
+}
 function renderResets(list){
   const box=document.getElementById("resets-panel"); if(!box) return;
   const items=list||[]; box.hidden=!items.length;
   box.querySelector(".resets-list").innerHTML=items.map(e=>{
     const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
     const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
-    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||"")].filter(Boolean).join(" · ");
-    return `<li class="reset-chip${e.exhausted?" exhausted":""}" title="${esc(tip)}">`+
+    const fc=e.exhausted?"":fcText(e.forecast);
+    const warn=!!(fc&&e.forecast&&e.forecast.will_exhaust_before_reset);
+    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||""),fc].filter(Boolean).join(" · ");
+    return `<li class="reset-chip${e.exhausted?" exhausted":warn?" will-exhaust":""}" title="${esc(tip)}">`+
       `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
       `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
-      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span></li>`;
+      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
+      (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
   }).join("");
 }
 
@@ -398,7 +419,8 @@ function gaugeMetrics(b){
   const resetLabel=reset?String(reset).trim():"";
   const resetAt=Number(b.reset_at)>0?Number(b.reset_at):null;
   const resetTxt=reset?`reset ${resetLabel}${resetAt?" · "+untilTxt(resetAt):""}`:"reset —";
-  const tip=[b.title||"", usedTxt, pctTxt, resetTxt, state?`stav ${state}`:"", b.freshness||""].filter(Boolean).join(" · ");
+  const fcTxt=(unavail||used>=100)?"":fcText(b.forecast);
+  const tip=[b.title||"", usedTxt, pctTxt, resetTxt, fcTxt, state?`stav ${state}`:"", b.freshness||""].filter(Boolean).join(" · ");
   const aria=unavail
     ?`${b.label||"kvóta"}: údaj není dostupný${state?`, ${state}`:""}`
     :`${b.label||"kvóta"}: zbývá ${remaining} procent, využito ${used} procent${state?`, stav ${state}`:""}`;
@@ -923,6 +945,10 @@ def _agent_action(name: str, action: str) -> tuple[bool, str]:
 
 
 def _state() -> bytes:
+    return json.dumps(_state_data()).encode()
+
+
+def _state_data() -> dict:
     cfg = config.load()
     agents = _agents_state(cfg)
     for a in agents:
@@ -953,14 +979,19 @@ def _state() -> bytes:
         s["system_latency_n"] = len(lat_by_url)
     from .integrity import status as core_status
     agent_tables = _merge_tables_by_title(extra['tables'])
+    resets = upcoming_resets(agent_tables, agents)
+    # Quota history + burn-rate forecast + Telegram alerts; each swallows its own errors.
+    forecasts = quota.observe(agent_tables, agents)
+    quota.annotate(agent_tables, agents, resets, forecasts)
+    alerts.tick(cfg, agent_tables, agents, forecasts)
     data = {"time": int(time.time()), "agents": agents,
             "agent_tables": agent_tables,
-            "resets": upcoming_resets(agent_tables, agents),
+            "resets": resets, "forecasts": forecasts,
             "columns": _merge_columns_by_title(extra['columns']),
             "plugin_errors": extra['errors'], "plugins": extra['plugins'],
             "plugin_loading": extra.get('loading', False),
             "core": core_status(), "services": services}
-    return json.dumps(data).encode()
+    return data
 
 
 def upcoming_resets(tables: list, agents: list, now: float | None = None, limit: int = 24) -> list:
@@ -1040,6 +1071,16 @@ def _merge_tables_by_title(tables: list) -> list:
     return out
 
 
+def _quota_loop(stop: threading.Event, interval: int = 60) -> None:
+    """Build the state in the background so quota history and alerts keep running with no browser
+    open. The state builder is cheap (plugins are cached and refreshed off-thread)."""
+    while not stop.wait(interval):
+        try:
+            _state_data()
+        except Exception as exc:
+            print(f"quota loop: {type(exc).__name__}: {exc}", flush=True)
+
+
 def _probe_loop(stop: threading.Event) -> None:
     while not stop.is_set():
         try:
@@ -1096,6 +1137,10 @@ def serve(host: str, port: int) -> None:
     print(f"Agents Monitoring dashboard → http://{host}:{port}  (Ctrl-C to stop)")
     if cfg.get("services"):
         threading.Thread(target=_probe_loop, args=(threading.Event(),), daemon=True).start()
+    quota.start()
+    alerts.start()
+    threading.Thread(target=_quota_loop, args=(threading.Event(),), daemon=True,
+                     name="agentsmon-quota").start()
     write_pidfile()
     server.serve_forever()
 
@@ -1125,6 +1170,10 @@ def make_server(host: str, port: int, cfg: dict):
                 body = _state()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
+            elif self.path == "/metrics" or self.path.startswith("/metrics?"):
+                body = metrics.render(_state_data()).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):
                 body = page
                 self.send_response(200)
