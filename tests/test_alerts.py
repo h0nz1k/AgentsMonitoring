@@ -49,12 +49,18 @@ class Settings(unittest.TestCase):
         self.assertEqual(s["thresholds"], [80, 95])
         self.assertEqual(s["min_interval_seconds"], 1800)
         self.assertFalse(s["dry_run"])
-        self.assertEqual(s["command"][:4], ["hermes", "--profile", "lana", "send"])
+        self.assertEqual(s["command"], ["hermes", "--profile", "lana", "send", "-q"])
+        self.assertNotIn("-t", s["command"])   # the target is appended once, by build_command
+        self.assertEqual(s["target"], "telegram")
         self.assertEqual(alerts.settings({"alerts": {"thresholds": [50], "dry_run": True}})["thresholds"], [50])
 
     def test_command_appends_message_last(self):
         cmd = alerts.build_command(alerts.settings({}), "ahoj")
         self.assertEqual(cmd, ["hermes", "--profile", "lana", "send", "-q", "-t", "telegram", "ahoj"])
+        cmd = alerts.build_command(alerts.settings({"alerts": {"target": "telegram:42"}}), "m")
+        self.assertEqual(cmd, ["hermes", "--profile", "lana", "send", "-q", "-t", "telegram:42", "m"])
+        cmd = alerts.build_command(dict(alerts.DEFAULTS, command=["x", "send", "-t", "own"]), "m")
+        self.assertEqual(cmd, ["x", "send", "-t", "own", "m"])
         cmd = alerts.build_command(dict(alerts.DEFAULTS, command=["x", "send"], target="telegram:1"), "m")
         self.assertEqual(cmd, ["x", "send", "-t", "telegram:1", "m"])
 

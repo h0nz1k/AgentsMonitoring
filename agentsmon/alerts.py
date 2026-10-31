@@ -38,7 +38,7 @@ DEFAULTS = {
     "timeout_seconds": 30,
     "timezone": "Europe/Prague",
     "target": "telegram",
-    "command": ["hermes", "--profile", "lana", "send", "-q", "-t", "telegram"],
+    "command": ["hermes", "--profile", "lana", "send", "-q"],   # build_command appends -t <target>
 }
 HYSTERESIS = 5.0
 
