@@ -54,7 +54,7 @@ def cell(value):
     if 'bars' in value:
         result['bars']=[]
         for b in objects(value['bars'],4):
-            if set(b)-{'label','percent','title','remaining','reset_label','state'}: raise ValueError('Invalid bar')
+            if set(b)-{'label','percent','title','remaining','reset_label','reset_at','state'}: raise ValueError('Invalid bar')
             pct=number(b['percent'])
             if pct>100: raise ValueError('Invalid percent')
             bar={'label':text(b['label'],30),'percent':pct,'title':text(b.get('title',''))}
@@ -69,6 +69,12 @@ def cell(value):
                     bar['remaining']=rem
             if b.get('reset_label') is not None:
                 bar['reset_label']=text(str(b.get('reset_label')),40)
+            # Optional machine-readable reset moment (Unix epoch seconds) — lets the core show a
+            # live countdown and the cross-provider "Nejbližší resety" overview.
+            if b.get('reset_at') is not None:
+                ts=number(b['reset_at'])
+                if not 1_000_000_000<=ts<=10_000_000_000: raise ValueError('Invalid reset_at')
+                bar['reset_at']=int(ts)
             state=b.get('state')
             if state is not None:
                 state=text(str(state),24).upper()

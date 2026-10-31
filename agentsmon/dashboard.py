@@ -101,6 +101,14 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-gauge:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
 .quota-gauge[aria-expanded="true"]{background:#f1f5f9}
 .quota-name{flex:0 0 auto;min-width:1.75rem;color:#475569;font-weight:600}
+.quota-until{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.resets-list{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:0;padding:0}
+.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:11px;line-height:1.25}
+.reset-chip .reset-when{font-weight:700;font-size:12px;color:#0f172a;font-variant-numeric:tabular-nums}
+.reset-chip .reset-what{color:#334155;font-weight:600}
+.reset-chip .reset-meta{color:#64748b}
+.reset-chip.exhausted{border-color:#fda4af;background:#fff1f2}
+.reset-chip.exhausted .reset-when{color:#be123c}
 .quota-track{flex:1 1 3.5rem;min-width:2.5rem;max-width:5.5rem;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden}
 .quota-fill{display:block;height:100%;border-radius:999px}
 .quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
@@ -157,6 +165,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
   .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
   .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
+  .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
+  .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
+  .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
   .quota-state.unavail{color:#64748b}
   .quota-gauge[aria-expanded="true"]{background:#1e293b}
   .quota-tip{background:#e2e8f0;color:#0f172a}
@@ -266,6 +277,43 @@ function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","
 const q=(r,s)=>r.querySelector(s);
 let paused=false, pollTimer=null;
 let tipSeq=0;
+let clockSkew=0;   // server time − browser time, so countdowns follow the host clock
+function nowSec(){ return Date.now()/1000+clockSkew; }
+function fmtIn(sec){
+  sec=Math.max(0,Math.round(sec));
+  if(sec<60) return "méně než minuta";
+  const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  if(d) return `${d} d ${h} h`;
+  if(h) return `${h} h ${m} min`;
+  return `${m} min`;
+}
+function fmtShort(sec){
+  sec=Math.max(0,Math.round(sec));
+  const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  return d?`${d}d${h}h`:h?`${h}h${String(m).padStart(2,"0")}`:`${Math.max(1,m)}m`;
+}
+function untilTxt(ts){ const s=ts-nowSec(); return s<=0?"probíhá reset…":"za "+fmtIn(s); }
+function tickResets(){
+  document.querySelectorAll("[data-reset-at]").forEach(el=>{
+    const ts=Number(el.dataset.resetAt); if(!isFinite(ts)) return;
+    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":fmtShort(ts-nowSec()));
+    else el.textContent=(el.dataset.resetLabel?`reset ${el.dataset.resetLabel} · `:"")+untilTxt(ts);
+  });
+}
+setInterval(tickResets, 30000);
+function renderResets(list){
+  const box=document.getElementById("resets-panel"); if(!box) return;
+  const items=list||[]; box.hidden=!items.length;
+  box.querySelector(".resets-list").innerHTML=items.map(e=>{
+    const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
+    const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
+    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||"")].filter(Boolean).join(" · ");
+    return `<li class="reset-chip${e.exhausted?" exhausted":""}" title="${esc(tip)}">`+
+      `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
+      `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
+      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span></li>`;
+  }).join("");
+}
 
 function renderTimeline(root, buckets, windowDays){
   const tl=q(root,".svc-timeline"); tl.innerHTML=""; const GREEN=98;
@@ -344,12 +392,14 @@ function gaugeMetrics(b){
   const pctTxt=unavail?"neznámé":`${Number(Number(remaining).toFixed(1))} % zbývá`;
   const usedTxt=unavail?"neznámé":`${Number(used.toFixed(1))} % využito`;
   const reset=b.reset_label?String(b.reset_label):(String(b.title||"").match(/reset\s+([^·|/]+)/i)||[])[1];
-  const resetTxt=reset?`reset ${String(reset).trim()}`:"reset —";
+  const resetLabel=reset?String(reset).trim():"";
+  const resetAt=Number(b.reset_at)>0?Number(b.reset_at):null;
+  const resetTxt=reset?`reset ${resetLabel}${resetAt?" · "+untilTxt(resetAt):""}`:"reset —";
   const tip=[b.title||"", usedTxt, pctTxt, resetTxt, state?`stav ${state}`:"", b.freshness||""].filter(Boolean).join(" · ");
   const aria=unavail
     ?`${b.label||"kvóta"}: údaj není dostupný${state?`, ${state}`:""}`
     :`${b.label||"kvóta"}: zbývá ${remaining} procent, využito ${used} procent${state?`, stav ${state}`:""}`;
-  return {used, state, remaining, unavail, remShow, fillCls, pctTxt, resetTxt, tip, aria};
+  return {used, state, remaining, unavail, remShow, fillCls, pctTxt, resetTxt, resetLabel, resetAt, tip, aria};
 }
 function placeTip(btn, tip){
   const r=btn.getBoundingClientRect();
@@ -388,6 +438,7 @@ function renderAgentGauge(b){
       `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
       `<span class="sr-only">${esc(m.aria)}</span>`+
       `<span aria-hidden="true" class="text-[11px] text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
+      (m.resetAt&&!m.unavail?`<span aria-hidden="true" class="quota-until" data-reset-at="${m.resetAt}" data-short="1">↻ ${esc(fmtShort(m.resetAt-nowSec()))}</span>`:"")+
     `</button>`+
     `<span id="${id}" role="tooltip" class="quota-tip">${esc(m.tip)}</span>`+
   `</span>`;
@@ -398,7 +449,8 @@ function renderQuotaBar(b){
     `<span class="quota-name">${esc(b.label||"")}</span>`+
     `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
     `<span class="quota-pct">${esc(m.pctTxt)}</span>`+
-    `<span class="quota-reset">${esc(m.resetTxt)}</span>`+
+    (m.resetAt?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
+               :`<span class="quota-reset">${esc(m.resetTxt)}</span>`)+
     (m.state?`<span class="quota-state ${quotaStateClass(m.state)}">${esc(m.state)}</span>`:"")+
   `</div>`;
 }
@@ -557,6 +609,8 @@ document.addEventListener("keydown",e=>{
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
+    if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
+    renderResets(d.resets);
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
     renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
     const tables=document.getElementById("plugin-tables");
@@ -644,6 +698,11 @@ refresh(); schedulePoll();
 PAGE=PAGE.replace('AGENT_TABLES',
     AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
         .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')+
+    '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
+    '<div class="flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">'
+    '<h2 class="text-base font-semibold">Nejbližší resety kvót</h2>'
+    '<span class="ml-auto text-xs text-slate-400">odpočet podle času serveru · vyčerpaná okna červeně</span></div>'
+    '<ul class="resets-list"></ul></section>'+
     '<div id="plugin-tables"></div>'+
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>'+
@@ -888,13 +947,53 @@ def _state() -> bytes:
         s["system_latency_ms"] = sysavg
         s["system_latency_n"] = len(lat_by_url)
     from .integrity import status as core_status
+    agent_tables = _merge_tables_by_title(extra['tables'])
     data = {"time": int(time.time()), "agents": agents,
-            "agent_tables": _merge_tables_by_title(extra['tables']),
+            "agent_tables": agent_tables,
+            "resets": upcoming_resets(agent_tables, agents),
             "columns": _merge_columns_by_title(extra['columns']),
             "plugin_errors": extra['errors'], "plugins": extra['plugins'],
             "plugin_loading": extra.get('loading', False),
             "core": core_status(), "services": services}
     return json.dumps(data).encode()
+
+
+def upcoming_resets(tables: list, agents: list, now: float | None = None, limit: int = 24) -> list:
+    """Every quota window with a known future reset, soonest first — one entry per window.
+
+    Provider tables are the source of truth (one row per account); agent rows only repeat the
+    same windows as compact gauges, so they are used solely for windows no table carries.
+    A window counts as exhausted when nothing remains — that is the reset worth waiting for.
+    """
+    now = time.time() if now is None else now
+    out, seen = [], set()
+    sources = [(r, True) for t in tables or [] for r in t.get("rows", [])] + [(a, False) for a in agents or []]
+    for row, primary in sources:
+        for cell in (row.get("cells") or {}).values():
+            for b in (cell or {}).get("bars") or []:
+                ts = b.get("reset_at")
+                if type(ts) is not int or ts <= now:
+                    continue
+                key = (round(float(b.get("percent") or 0), 1), ts // 60)
+                if key in seen and not primary:
+                    continue
+                name = (row.get("name") or "").strip()
+                ident = (name, b.get("label"), ts // 60)
+                if ident in seen:
+                    continue
+                seen.add(ident); seen.add(key)
+                rem = b.get("remaining")
+                used = b.get("percent")
+                state = str(b.get("state") or "").upper()
+                out.append({
+                    "source": name, "label": b.get("label") or "", "reset_at": ts,
+                    "reset_label": b.get("reset_label") or "", "percent": used, "remaining": rem,
+                    "state": state,
+                    "exhausted": state == "VYČERPÁNO" or (type(rem) in (int, float) and rem <= 0)
+                                 or (type(used) in (int, float) and used >= 100),
+                })
+    out.sort(key=lambda e: (e["reset_at"], e["source"], e["label"]))
+    return out[:limit]
 
 
 def _merge_columns_by_title(columns: list) -> list:
