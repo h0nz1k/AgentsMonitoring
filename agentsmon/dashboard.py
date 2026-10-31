@@ -158,6 +158,11 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .svc-head h2{pointer-events:none}
 .scroll-hint{display:none}
+.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:11px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
+a.work-link:hover,a.work-link:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
+.work-link.blocked{border-color:#fcd34d;background:#fffbeb;color:#92400e}.work-link.awaiting_pickup{border-color:#ddd6fe;background:#f5f3ff;color:#5b21b6}
+.st-wait{color:#b45309;font-weight:600}.wait-ico{flex:0 0 auto;font-size:12px;line-height:1}
+.row-wait>td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
 .acct-chip{display:inline-flex;align-items:center;gap:.3rem;min-height:var(--touch);max-width:100%;padding:0 .6rem;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;font-weight:600;white-space:nowrap;text-decoration:none}
 a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
 .acct-chip .acct-name{overflow:hidden;text-overflow:ellipsis;max-width:11rem}
@@ -317,6 +322,8 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
   .quota-state.unavail{color:#64748b}
   .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+  .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}.work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}.st-wait{color:#fbbf24}
   .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
   .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
   .quota-card{background:#0f172a;border-color:#1e293b}.quota-card.exhausted{border-color:#9f1239}
@@ -848,13 +855,14 @@ function renderAgents(root, agents, summary=null, columns=[]){
   q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+(on?"bg-emerald-50 border-emerald-200":"bg-white border-slate-200");
   q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+(on?"bg-emerald-500":"bg-slate-300");
   const cnt=q(root,".agents-count");
-  cnt.textContent=`${running}/${agents.length} v pořádku`;
-  cnt.className="agents-count ml-auto text-sm font-medium "+(agents.length&&running===agents.length?"text-emerald-600":running?"text-amber-600":"text-slate-400");
+  const nWait=agents.filter(a=>a.waiting&&a.alive).length, waitTxt=nWait?` · ${nWait} čeká na vstup`:"";
+  cnt.textContent=`${running}/${agents.length} v pořádku`+waitTxt;
+  cnt.className="agents-count ml-auto text-sm font-medium "+(agents.length&&running===agents.length&&!nWait?"text-emerald-600":running?"text-amber-600":"text-slate-400");
   if(summary){
     const state=summary.up?STATE.operational:(summary.rows.length||summary.error?STATE.outage:STATE.nodata);
     q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+state[3];
     q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+state[0];
-    cnt.textContent=`${running}/${agents.length} v pořádku`;
+    cnt.textContent=`${running}/${agents.length} v pořádku`+waitTxt;
     cnt.className="agents-count ml-auto text-sm font-medium "+state[2];
     q(root,".agents-note").textContent=summary.error||summary.note||"";
   }
@@ -876,13 +884,24 @@ function renderAgents(root, agents, summary=null, columns=[]){
     }else{
       sid=`<span class="sid-btn sid-muted" title="bez relace" aria-label="Bez relace">${ICO_NONE}</span>`;
     }
-    const ok=a.alive&&!a.needs_login; const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
-    const statusTxt=a.status||(ok?"Běží":"Nečinný");
+    const ok=a.alive&&!a.needs_login; const waiting=ok&&!!a.waiting;
+    const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
+    const statusTxt=waiting?"Čeká na vstup":(a.status||(ok?"Běží":"Nečinný"));
     const longDetail=String(a.status_detail||"").length>90;
-    const statusTip=[longDetail?a.status:(a.status_detail||a.status),
+    const statusTip=waiting?["Čeká na vstup – agent v tmux čeká na potvrzení nebo odpověď",a.waiting_hint?`„${a.waiting_hint}“`:""].filter(Boolean).join(" · ")
+      :[longDetail?a.status:(a.status_detail||a.status),
       ok&&a.latency_ms!=null?`latence ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
-    const stCls=a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
-    const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0";
+    const stCls=waiting?"st-wait":a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
+    const stIco=waiting?`<span class="wait-ico" aria-hidden="true">✋</span>`:`<span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span>`;
+    const w=a.work&&a.work.issue?a.work:null;
+    let workHtml="";
+    if(w){
+      const wtip=`${w.state==="running"?"Pracuje na":"Přiřazeno"} #${w.issue}${w.title?": "+w.title:""}${w.state_label_cs?" · "+w.state_label_cs:""}`;
+      const inner=`<span aria-hidden="true">↗</span>#${esc(w.issue)}`, u=ghUrl(w.url);
+      workHtml=u?`<a class="work-link ${esc(w.state||"")}" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(wtip)}" aria-label="${esc(wtip)}">${inner}</a>`
+        :`<span class="work-link ${esc(w.state||"")}" title="${esc(wtip)}">${inner}</span>`;
+    }
+    const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
     const nameBg=NAME_BG[a.name_color];
     const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
     const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
@@ -893,10 +912,10 @@ function renderAgents(root, agents, summary=null, columns=[]){
     const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
     tr.innerHTML=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
       `<td class="px-2 py-1.5">${sid}</td>`+
       `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
-      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}"><span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span><span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
+      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
       columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
       (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
