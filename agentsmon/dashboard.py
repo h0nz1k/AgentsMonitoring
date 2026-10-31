@@ -5,7 +5,9 @@ Pure standard-library HTTP server (no Flask/FastAPI). Serves one self-contained 
 and one availability card per **service** (status dot, Uptime / Availability-SLA / Latency
 metrics, and a day-by-day availability timeline). A background thread probes services on an
 interval and appends to the uptime DB, so just leaving the dashboard running builds history.
-Binds 127.0.0.1 by default; optional HTTP Basic auth (config.dashboard.auth). UI text is Czech (lang=cs, Intl cs-CZ).
+Binds 127.0.0.1 by default; optional HTTP Basic auth (config.dashboard.auth) or Tailscale Serve
+identity headers (``dashboard.auth_mode: "tailscale"``, loopback bind only, admin/viewer roles).
+UI text is Czech (lang=cs, Intl cs-CZ).
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import hmac
 import json
 from pathlib import Path
 import os
+import secrets
 import shutil
 import subprocess
 import threading
@@ -230,6 +233,140 @@ def _loopback_peer(ip) -> bool:
     return a.is_loopback
 
 
+# ---- Tailscale identity (dashboard.auth_mode = "tailscale") -----------------------------------
+#
+# Tailscale Serve terminates HTTPS for the tailnet and proxies to http://127.0.0.1:<port>. For
+# untagged user devices it adds Tailscale-User-Login / Tailscale-User-Name and strips any incoming
+# copies of those headers. They are trusted only when (a) the server is bound to loopback
+# (enforced at startup by check_auth_mode) and (b) the TCP peer is loopback.
+#
+# ACCEPTED LIMITATION: any local process (in particular one running as the same OS user,
+# agentops) can connect to 127.0.0.1 and forge Tailscale-User-Login. That process already holds
+# the same OS privileges (systemctl --user, tmux, kill), so the dashboard is not a security
+# boundary against it; the audit log still records such requests.
+#
+# Roles: dashboard.admins (logins) -> admin; other logins -> viewer when dashboard.viewers holds
+# "*" or the login, otherwise 403. A loopback request WITHOUT identity and without proxy headers
+# (local scripts curling /api/state, /metrics) -> read-only viewer. A *proxied* request without
+# identity (tagged device, Funnel) gets no access at all.
+
+TS_LOGIN, TS_NAME = "Tailscale-User-Login", "Tailscale-User-Name"
+ROLE_CS = {"admin": "správce", "viewer": "čtenář"}
+AUTH_MODES = ("basic", "tailscale")
+_PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "Tailscale-Funnel-Request")
+
+
+def check_auth_mode(host: str, dcfg: dict) -> str:
+    """Validate ``dashboard.auth_mode``; tailscale mode must listen on a loopback literal."""
+    mode = dcfg.get("auth_mode") or "basic"
+    if mode not in AUTH_MODES:
+        raise SystemExit(f"unknown dashboard.auth_mode {mode!r} (expected one of {', '.join(AUTH_MODES)})")
+    if mode == "tailscale" and host not in ("127.0.0.1", "::1"):
+        raise SystemExit(
+            f"refusing to listen on {host} with dashboard.auth_mode=tailscale — identity headers are "
+            "only trustworthy behind Tailscale Serve on loopback. Set dashboard.host to 127.0.0.1.")
+    return mode
+
+
+def _login_set(values) -> set:
+    return {v.strip().lower() for v in values or [] if isinstance(v, str) and v.strip()}
+
+
+def _decode_display_name(value: str) -> str:
+    try:
+        from email.header import decode_header, make_header
+        value = str(make_header(decode_header(value)))
+    except Exception:
+        pass
+    return "".join(c for c in value if c.isprintable())[:120]
+
+
+def tailscale_identity(headers, peer, dcfg: dict) -> dict:
+    """Resolve the caller: ``{"role": "admin"|"viewer"|None, "user", "name", "source", "reason"}``.
+    ``role`` None means: refuse (403)."""
+    if not _loopback_peer(peer):
+        return {"role": None, "user": None, "name": "", "source": "remote", "reason": "peer"}
+    logins = headers.get_all(TS_LOGIN) or []
+    login = logins[0].strip() if len(logins) == 1 else ""
+    if len(logins) > 1 or (logins and (not login or len(login) > 254 or not login.isprintable())):
+        return {"role": None, "user": None, "name": "", "source": "tailscale", "reason": "identity"}
+    if not login:
+        if any(headers.get(h) for h in _PROXY_HEADERS):
+            return {"role": None, "user": None, "name": "", "source": "proxy", "reason": "identity"}
+        return {"role": "viewer", "user": None, "name": "", "source": "loopback", "reason": None}
+    name = _decode_display_name(headers.get(TS_NAME) or "")
+    low = login.lower()
+    viewers = _login_set(dcfg.get("viewers"))
+    if low in _login_set(dcfg.get("admins")):
+        role = "admin"
+    elif "*" in viewers or low in viewers:
+        role = "viewer"
+    else:
+        role = None
+    return {"role": role, "user": login, "name": name, "source": "tailscale",
+            "reason": None if role else "not-allowed"}
+
+
+# Step-up: destructive actions need a second, server-issued one-time confirmation. Restart stays
+# single-confirm. Plugin action ids are matched by word so e.g. "redeem_reset" / "delete_x" count.
+STEP_UP_ACTIONS = frozenset({"stop", "redeem_reset"})
+_DANGER_RE = re.compile(r"(^|[_-])(redeem|reset|delete|remove|purge|kill|stop|wipe|revoke)([_-]|$)")
+
+
+def needs_step_up(action, table, dcfg: dict) -> bool:
+    if not isinstance(action, str):
+        return False
+    extra = {a for a in dcfg.get("step_up_actions") or [] if isinstance(a, str)}
+    if action in STEP_UP_ACTIONS or action in extra:
+        return True
+    return table is not None and bool(_DANGER_RE.search(action))
+
+
+def step_up_summary(action, name, table, row) -> str:
+    who = name or row or "?"
+    if table is None and action == "stop":
+        return f"Zastavit agenta „{who}“"
+    if action == "redeem_reset":
+        return f"Uplatnit reset kvóty pro „{who}“ – nevratné"
+    return f"Spustit akci „{action}“ pro „{who}“"
+
+
+class ConfirmTokens:
+    """One-time confirmation tokens bound to (user, action, target), TTL seconds, in memory."""
+
+    def __init__(self, ttl=120, clock=time.monotonic):
+        try:
+            ttl = float(ttl)
+        except (TypeError, ValueError):
+            ttl = 120.0
+        self.ttl, self.clock = ttl if ttl > 0 else 120.0, clock
+        self.items: dict = {}
+        self.lock = threading.Lock()
+
+    def issue(self, user, action, target) -> str:
+        token = secrets.token_urlsafe(24)
+        now = self.clock()
+        with self.lock:
+            for k in [k for k, v in self.items.items() if v[3] <= now]:
+                del self.items[k]
+            while len(self.items) >= 256:
+                del self.items[next(iter(self.items))]
+            self.items[token] = (user, action, tuple(target), now + self.ttl)
+        return token
+
+    def redeem(self, token, user, action, target):
+        """``None`` when valid (and consumed); otherwise the reason. Any presented token is spent."""
+        with self.lock:
+            item = self.items.pop(token, None) if isinstance(token, str) else None
+        if item is None:
+            return "unknown"
+        if item[3] <= self.clock():
+            return "expired"
+        if item[:3] != (user, action, tuple(target)):
+            return "mismatch"
+        return None
+
+
 # ---- security headers ------------------------------------------------------------------------
 
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
@@ -410,6 +547,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-wrap{position:relative;display:inline-block;max-width:100%}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .agent-act{min-width:var(--touch);min-height:36px;justify-content:center}
+.who{font-size:12px;color:#475569;border:1px solid #e2e8f0;border-radius:9999px;padding:1px 8px;background:#fff}
+.who:empty{display:none}
+.viewer-lock .agent-act{cursor:not-allowed;opacity:.45}
 .svc-head{min-height:var(--touch);cursor:pointer}
 .svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .svc-head h2{pointer-events:none}
@@ -610,13 +750,14 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   #toast{background:#e2e8f0!important;color:#0f172a!important}
 }
 </style>
-</head><body class="bg-slate-50 text-slate-800 antialiased">
+</head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
 <div id="app" class="mx-auto px-5 py-6">
   <header class="mb-4">
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
       <span id="overall-pill" class="ovr" title="Celkový stav">načítání…</span>
+      <span id="whoami" class="who" title="Přihlášený uživatel · role">__AGENTSMON_WHO__</span>
     </div>
     <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, fronty práce, kvót poskytovatelů a dostupnosti služeb.</p>
   </header>
@@ -663,6 +804,8 @@ const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emera
   "other":"bg-slate-100 text-slate-600" };
 const NAME_BG = { "red":"bg-rose-100", "gold":"bg-amber-100", "green":"bg-emerald-100", "blue":"bg-sky-100" };
 const LOCALE="cs-CZ";
+const ROLE=document.body.dataset.role||"admin";   // server-rendered; the server enforces it anyway
+const VIEWER_TIP="Akce smí spouštět jen správce (vaše role: čtenář)";
 const SERVICE_LABELS={
   "Multi-Agent System Availability":"Dostupnost multiagentního systému",
   "Multi-agent system availability":"Dostupnost multiagentního systému",
@@ -1154,6 +1297,7 @@ function renderActions(a,table,{lock=true}={}){
   const buttons=defs.map(x=>x.icon==='reset'
     ?`<button type="button" class="agent-act reset-pill" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.confirm||x.label)}" aria-label="${esc(x.label)}">⟲ ${esc(x.label)}</button>`
     :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
+  if(ROLE==="viewer"&&buttons) return `<span class="viewer-lock" title="${esc(VIEWER_TIP)}">`+buttons.replace(/<button /g,'<button disabled aria-disabled="true" ')+'</span>';
   return buttons+(lock&&(a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
 }
 function renderAgents(root, agents, summary=null, columns=[]){
@@ -1518,15 +1662,28 @@ document.addEventListener("click", e=>{
 });
 document.addEventListener("click", async e=>{
   const btn=e.target.closest(".agent-act"); if(!btn) return;
+  if(ROLE==="viewer"){ showToast("⚠ "+VIEWER_TIP); return; }
   const name=btn.dataset.name, act=btn.dataset.act;
   if(btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
   if(act==="stop" && !btn.dataset.confirm && !confirm(`Zastavit agenta „${name}“? Nebude automaticky restartován, dokud nestisknete ↻.`)) return;
   btn.disabled=true; btn.classList.add("opacity-40");
   showToast((act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…");
   try{
-    const r=await fetch("/api/agent/action",{method:"POST",credentials:"same-origin",
-      headers:{"Content-Type":"application/json","X-Agentsmon":"action"},body:JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row})});
-    const j=await r.json().catch(()=>({}));
+    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row});
+    const send=async tok=>{
+      const h={"Content-Type":"application/json","X-Agentsmon":"action"};
+      if(tok) h["X-Agentsmon-Confirm"]=tok;
+      const r=await fetch("/api/agent/action",{method:"POST",credentials:"same-origin",headers:h,body});
+      return [r, await r.json().catch(()=>({}))];
+    };
+    let [r,j]=await send();
+    if(r.status===428 && j && j.confirm_token){
+      // Step-up: the server repeats exactly what will happen; the one-time token expires.
+      if(!confirm(`Potvrzení nevratné akce\n\n${j.summary||(act+" – "+name)}\n\nOpravdu pokračovat? Potvrzení platí ${j.expires_in||120} s.`)){
+        showToast("Akce zrušena"); btn.disabled=false; btn.classList.remove("opacity-40"); return;
+      }
+      [r,j]=await send(j.confirm_token);
+    }
     showToast((j&&j.ok?"✓ ":"⚠ ")+((j&&j.message)||(r.ok?"hotovo":"selhalo")));
   }catch(err){ showToast("⚠ "+err); }
   setTimeout(refresh, act==="restart"?2500:600);
@@ -2345,11 +2502,19 @@ def make_server(host: str, port: int, cfg: dict):
     """Same handler for production and isolated HTTP acceptance tests."""
     import sys
     from urllib.parse import urlsplit, parse_qs
-    require_auth_or_die(host, cfg)
     dcfg = cfg.get("dashboard", {}) or {}
+    auth_mode = check_auth_mode(host, dcfg)
+    ts_mode = auth_mode == "tailscale"
+    if not ts_mode:
+        require_auth_or_die(host, cfg)
+    elif not _login_set(dcfg.get("admins")):
+        print("VAROVÁNÍ: dashboard.auth_mode=tailscale bez dashboard.admins – nikdo nemůže spouštět akce.",
+              file=sys.stderr)
+    step_up = dcfg.get("step_up", ts_mode) is True
+    confirms = ConfirmTokens(dcfg.get("confirm_ttl_seconds", 120))
     poll = dcfg.get("poll_seconds", 15)
     page = PAGE.replace("POLL", str(poll)).encode()
-    auth = dcfg.get("auth") or {}
+    auth = (dcfg.get("auth") or {}) if not ts_mode else {}
     auth_user, auth_hash = auth.get("user"), auth.get("pwhash")
     if auth_user and is_legacy_hash(auth_hash):
         print("VAROVÁNÍ: dashboard.auth.pwhash je starý nesolený SHA-256 – nastavte heslo znovu přes "
@@ -2404,12 +2569,16 @@ def make_server(host: str, port: int, cfg: dict):
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "client_ip": self.client_address[0] if self.client_address else None,
                 "user": getattr(self, "_audit_user", None),
+                "role": (getattr(self, "_ident", None) or {}).get("role"),
+                "source": (getattr(self, "_ident", None) or {}).get("source"),
                 "user_agent": _clip(self.headers.get("User-Agent"), 200),
                 "route": _clip(urlsplit(self.path).path, 200),
             }
             for k in ("name", "table", "row", "action"):
                 v = p.get(k)
                 entry[k] = _clip(v, 240) if isinstance(v, str) else None
+            if p.get("confirmed"):
+                entry["confirmed"] = True
             entry.update({"status": status, "result": result})
             if reason:
                 entry["reason"] = reason
@@ -2424,8 +2593,53 @@ def make_server(host: str, port: int, cfg: dict):
             body = json.dumps({"ok": False, "error": reason, "message": message}, ensure_ascii=False).encode()
             self._reply(status, body, "application/json", extra)
 
+        def _identify(self) -> bool:
+            """Set ``self._ident``; on refusal reply 403 (Czech) and return False."""
+            if not ts_mode:
+                basic = _basic_credentials(self.headers.get("Authorization")) if auth_user else None
+                self._ident = {"role": "admin", "user": basic[0] if basic else None, "name": "",
+                               "source": "basic" if auth_user else "open", "reason": None}
+                return True
+            self._ident = tailscale_identity(self.headers, self.client_address[0], dcfg)
+            self._audit_user = _clip(self._ident["user"], 254)
+            if self._ident["role"]:
+                return True
+            login = self._ident["user"]
+            msg = (f"Účet {login} nemá přístup k Monitorování agentů. Požádejte správce o doplnění do "
+                   "dashboard.viewers." if login else
+                   "Přístup jen pro přihlášené uživatele tailnetu (Tailscale Serve, bez tagovaného zařízení).")
+            self._audit(403, "rejected", self._ident["reason"])
+            if urlsplit(self.path).path.startswith("/api/") or self.command == "POST":
+                body = json.dumps({"ok": False, "error": "forbidden", "message": msg}, ensure_ascii=False).encode()
+                self._reply(403, body)
+            else:
+                import html as _html
+                body = ('<!doctype html><html lang="cs"><meta charset="utf-8"><title>Přístup odepřen</title>'
+                        '<body style="font-family:sans-serif;margin:2em"><h1>Přístup odepřen</h1><p>'
+                        + _html.escape(msg) + '</p></body></html>').encode()
+                self._reply(403, body, "text/html; charset=utf-8")
+            return False
+
+        def _page(self) -> bytes:
+            import html as _html
+            ident = self._ident
+            role = ident["role"]
+            if ident["source"] == "tailscale":
+                who = f"{ident['user']} · {ROLE_CS[role]}"
+            elif ident["source"] == "loopback":
+                who = f"místní přístup · {ROLE_CS[role]}"
+            elif ident["source"] == "basic" and ident["user"]:
+                who = f"{ident['user']} · {ROLE_CS[role]}"
+            else:
+                who = ""
+            return (page.replace(b"__AGENTSMON_ROLE__", role.encode())
+                        .replace(b"__AGENTSMON_WHO__", _html.escape(_clip(who, 300)).encode()))
+
         def do_GET(self):
+            self._audit_user = None
             if not self._host_ok():
+                return
+            if not self._identify():
                 return
             is_metrics = self.path == "/metrics" or self.path.startswith("/metrics?")
             bearer = False
@@ -2438,7 +2652,14 @@ def make_server(host: str, port: int, cfg: dict):
             if not bearer and auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
                                                                        auth_user, auth_hash):
                 return self._denied()
-            if self.path.startswith("/api/state"):
+            if self.path == "/api/whoami":
+                i = self._ident
+                body = json.dumps({"user": i["user"], "name": i["name"] or None, "role": i["role"],
+                                   "role_cs": ROLE_CS.get(i["role"]), "source": i["source"],
+                                   "auth_mode": auth_mode}, ensure_ascii=False).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+            elif self.path.startswith("/api/state"):
                 body = _state()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -2447,7 +2668,7 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_response(200)
                 self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):
-                body = page
+                body = self._page()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
             elif self.path == "/static/tailwind.js":
@@ -2470,7 +2691,9 @@ def make_server(host: str, port: int, cfg: dict):
             self._audit_user = None
             if not self._host_ok(audited=True):
                 return
-            if not limiter.allow(self.client_address[0]):
+            if not self._identify():
+                return
+            if not limiter.allow(self._ident["user"] or self.client_address[0]):
                 return self._post_fail(429, "rate-limit", "Příliš mnoho akcí za sebou – zkuste to za chvíli.",
                                        extra=(("Retry-After", "10"),))
             if auth_user and auth_hash:
@@ -2507,9 +2730,29 @@ def make_server(host: str, port: int, cfg: dict):
             act = params.get("action") or (qs.get("action", [None])[0])
             table, row = params.get('table'), params.get('row')
             logged = {"name": name, "table": table, "row": row, "action": act}
+            if self._ident["role"] != "admin":
+                return self._post_fail(403, "role", "Akce smí spouštět jen správce (vaše role: "
+                                       + ROLE_CS.get(self._ident["role"], "?") + ").", logged)
+            if table is not None and not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
+                return self._post_fail(400, "params", "Neplatné parametry akce.", logged)
+            if step_up and needs_step_up(act, table, dcfg) and (table is not None or isinstance(name, str)):
+                target = (table, row) if table is not None else (name,)
+                user = self._ident["user"] or ""
+                presented = self.headers.get("X-Agentsmon-Confirm")
+                if not presented:
+                    tok = confirms.issue(user, act, target)
+                    summary = step_up_summary(act, name, table, row)
+                    self._audit(428, "confirm-required", None, logged, summary)
+                    return self._reply(428, json.dumps({
+                        "ok": False, "error": "confirm-required", "confirm_token": tok,
+                        "expires_in": int(confirms.ttl), "summary": summary,
+                        "message": "Akce vyžaduje potvrzení."}, ensure_ascii=False).encode())
+                why = confirms.redeem(presented.strip(), user, act, target)
+                if why:
+                    return self._post_fail(403, "confirm-" + why, "Potvrzení je neplatné nebo vypršelo – "
+                                           "spusťte akci znovu.", logged)
+                logged["confirmed"] = True
             if table is not None:
-                if not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
-                    return self._post_fail(400, "params", "Neplatné parametry akce.", logged)
                 ok, msg = plugins.manager(config.load()).action(table,row,act)
                 body = json.dumps({'ok':ok,'message':msg}).encode()
                 status = 200 if ok else 409
@@ -2531,6 +2774,7 @@ def make_server(host: str, port: int, cfg: dict):
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.agentsmon_allowed_hosts = allowed_hosts(host, server.server_port, cfg)
+    server.agentsmon_confirms = confirms
     return server
 
 
