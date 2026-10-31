@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import base64
 import ipaddress
+import re
+import unicodedata
 import hashlib
 import hmac
 import json
@@ -61,6 +63,7 @@ AGENT_TABLE = r"""
       <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
     <div class="svc-body">
+    <p class="scroll-hint text-[11px] text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
     <div class="rounded-lg border border-slate-200 bg-white overflow-x-auto">
       <table class="w-full text-sm agents-table" style="table-layout:auto"><thead>
         <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
@@ -77,6 +80,22 @@ AGENT_TABLE = r"""
     <p class="agents-note text-[11px] text-slate-400 mt-2">NOTE</p>
     </div>
   </section>"""
+
+
+QUOTA_SECTION = r"""<template id="quota-table-tpl">
+  <section class="mb-6 quota-section" data-svc="plugin">
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
+      <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
+      <h2 class="text-base font-semibold">Kvóty</h2>
+      <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
+      <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
+    </div>
+    <div class="svc-body">
+      <ul class="quota-cards" role="list"></ul>
+      <details class="pod qc-note mt-1" data-key="quota-note" hidden><summary>Poznámka ke kvótám</summary><p class="pod-body agents-note" style="list-style:none;padding-left:0"></p></details>
+    </div>
+  </section>
+</template>"""
 
 
 PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
@@ -128,6 +147,38 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .svc-head{min-height:var(--touch);cursor:pointer}
 .svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .svc-head h2{pointer-events:none}
+.scroll-hint{display:none}
+.acct-chip{display:inline-flex;align-items:center;gap:.3rem;min-height:var(--touch);max-width:100%;padding:0 .6rem;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;font-weight:600;white-space:nowrap;text-decoration:none}
+a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
+.acct-chip .acct-name{overflow:hidden;text-overflow:ellipsis;max-width:11rem}
+.acct-chip .acct-win{font-variant-numeric:tabular-nums}
+.acct-chip.warn{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+.acct-chip.err{border-color:#fda4af;background:#fff1f2;color:#be123c}
+.quota-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr));gap:.75rem;list-style:none;margin:0;padding:0}
+.quota-card{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.65rem .8rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;scroll-margin:1rem;transition:box-shadow .3s ease}
+.quota-card.exhausted{border-color:#fda4af}
+.quota-card.flash{box-shadow:0 0 0 3px #38bdf8}
+.quota-card:focus{outline:none}
+.qc-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.qc-name{font-weight:600;font-size:14px}
+.qc-users{font-size:11px;color:#64748b;margin:0}
+.qc-exh{font-size:11px;font-weight:700;color:#be123c}
+.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
+.fresh.ok{background:#ecfdf5;color:#047857}.fresh.stale{background:#fffbeb;color:#b45309}.fresh.unavail{background:#f1f5f9;color:#475569}
+.qc-wins{display:flex;flex-direction:column;gap:.35rem}
+.qc-win{display:flex;flex-wrap:wrap;align-items:center;column-gap:.45rem;row-gap:1px;font-size:12px;min-width:0}
+.win-type{flex:0 0 3.2rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.win-label{flex:0 1 6.5rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;font-weight:600}
+.qc-win .quota-track{flex:1 1 4rem;max-width:none}
+.qc-win .quota-pct{min-width:5.2rem}
+.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:11px}
+.win-fc{color:#64748b;font-style:italic}.win-fc.warn{color:#b45309;font-weight:600;font-style:normal}
+.qc-actions{display:flex;flex-wrap:wrap;gap:.4rem}
+.qc-actions .reset-pill{min-height:var(--touch);margin:0}
+.pod{font-size:12px;color:#475569;white-space:normal}
+.pod>summary{min-height:var(--touch);line-height:var(--touch);cursor:pointer;color:#0369a1;font-weight:600;width:max-content}
+.pod>summary:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+.pod-body{margin:.1rem 0 .3rem;padding-left:1.1rem;list-style:disc;line-height:1.4;word-break:break-word;max-width:48rem}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:1rem}
 .toolbar button{min-height:var(--touch);min-width:var(--touch);padding:0 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:13px}
 .toolbar button:hover,.toolbar button:focus-visible{border-color:#94a3b8;outline:2px solid #38bdf8;outline-offset:1px}
@@ -140,6 +191,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .quota-gauge{flex-wrap:wrap;width:100%}
   .quota-track{flex:1 1 100%;max-width:none}
   th,td{font-size:12px}
+  .scroll-hint{display:block}
 }
 @media (min-width:1440px){
   .quota-track{max-width:7rem}
@@ -181,6 +233,13 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .reset-chip .reset-fc{color:#94a3b8}.reset-chip .reset-fc.warn{color:#fbbf24}
   .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
   .quota-state.unavail{color:#64748b}
+  .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+  .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+  .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
+  .quota-card{background:#0f172a;border-color:#1e293b}.quota-card.exhausted{border-color:#9f1239}
+  .qc-users,.win-type,.win-fc{color:#94a3b8}.win-label{color:#cbd5e1}.qc-exh{color:#fda4af}
+  .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}.fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}.fresh.unavail{background:#1e293b;color:#94a3b8}
+  .pod{color:#94a3b8}.pod>summary{color:#38bdf8}
   .quota-gauge[aria-expanded="true"]{background:#1e293b}
   .quota-tip{background:#e2e8f0;color:#0f172a}
   .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
@@ -500,18 +559,163 @@ function renderCell(cell, {compact=false}={}){
   }
   return `<span title="${esc(cell.title||"")}" class="${tones[cell.tone]||''} whitespace-nowrap text-xs">${esc(cell.text||"–")}</span>`;
 }
+// ---- P1: account chips, quota cards, details disclosure ----
+let ACCTS={};                 // "table|row" → provider row (one account = one card)
+const OPEN_DETAILS=new Set(); // <details data-key> the user opened; survives the 15 s re-render
+const QUOTA_STALE_S=7200;
+const ISO_RE=/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+function fmtIsoText(t){
+  return String(t==null?"":t).replace(ISO_RE,m=>{
+    const d=new Date(m.replace(/(\.\d{3})\d+/,"$1"));
+    return isNaN(d)?m:d.toLocaleString(LOCALE,{day:"numeric",month:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  });
+}
+function detailsBlock(text,key){
+  const parts=fmtIsoText(text).split(/\s+·\s+/).map(s=>s.trim()).filter(Boolean);
+  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+    `<ul class="pod-body">${parts.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`;
+}
+document.addEventListener("toggle",e=>{
+  const d=e.target; if(!d||d.tagName!=="DETAILS"||!d.dataset||!d.dataset.key) return;
+  if(d.open) OPEN_DETAILS.add(d.dataset.key); else OPEN_DETAILS.delete(d.dataset.key);
+},true);
+function allBars(row){
+  const out=[]; Object.values((row&&row.cells)||{}).forEach(c=>((c&&c.bars)||[]).forEach(b=>out.push({b,c}))); return out;
+}
+function isUnavail(b){
+  const s=String(b.state||"").toUpperCase();
+  return s==="UNAVAILABLE"||s==="NEDOSTUPNÉ"||s==="N/A"||b.percent==null||!isFinite(Number(b.percent));
+}
+function fmtPct(v){ return Number(Number(v).toFixed(1)).toLocaleString(LOCALE)+" %"; }
+function winType(b,cell){
+  const l=String(b.label||"").toLowerCase();
+  if(/\b5\s*h|5 hr|session/.test(l)) return "5h";
+  if(/week|týd|\b7\s*d\b|weekly/.test(l)) return "týden";
+  if(/bonus|kredit|credit|trial/.test(l)) return "kredit";
+  if(!(Number(b.reset_at)>0)&&/kč|czk|usd|eur|\$|€/i.test(String((cell&&cell.text)||""))) return "kredit";
+  if(/month|měs|included|\bapi\b|\bmin\b/.test(l)) return "měsíc";
+  const s=Number(b.reset_at)>0?Number(b.reset_at)-nowSec():null;
+  if(s!=null) return s>8*86400?"měsíc":s>6*3600?"týden":"5h";
+  return "limit";
+}
+function sameAsType(label,typ){
+  const l=String(label).trim().toLowerCase();
+  return l===typ||(typ==="týden"&&/^(7d|week|weekly|týden)$/.test(l))||(typ==="5h"&&/^(5h|5 h)$/.test(l));
+}
+function worstWindow(row){
+  let w=null;
+  allBars(row).forEach(x=>{ if(isUnavail(x.b)) return; if(!w||Number(x.b.percent)>Number(w.b.percent)) w=x; });
+  return w;
+}
+function renderAccountChip(a){
+  const acc=a.quota_account||null;
+  const row=acc?ACCTS[acc.table+"|"+acc.row]:null;
+  const src=row||(allBars(a).length?a:null);
+  if(!src) return `<span class="text-slate-300 text-xs" title="Agent nemá přiřazený účet s kvótou">—</span>`;
+  const w=worstWindow(src), name=acc?acc.name:"kvóta";
+  const used=w?Number(w.b.percent):null;
+  const tone=used==null?"":used>=90?" err":used>=70?" warn":"";
+  const lab=w?String(w.b.label||winType(w.b,w.c)):"";
+  const users=(acc&&acc.shared_with)||[];
+  const shared=users.length>1?"Sdílený účet s: "+users.join(", "):(acc?"Účet používá jen tento agent":"");
+  const lines=allBars(src).map(x=>`${x.b.label||winType(x.b,x.c)}: ${isUnavail(x.b)?"neznámé":"využito "+fmtPct(x.b.percent)}${x.b.reset_label?" · reset "+x.b.reset_label:""}`);
+  const tip=[name,...lines,shared,acc?"Kliknutím přejdete na účet v sekci kvót.":""].filter(Boolean).join("\n");
+  const resetAt=w&&Number(w.b.reset_at)>0?Number(w.b.reset_at):null;
+  const aria=`${name}: nejvytíženější okno ${lab||"neznámé"}, využito ${used==null?"neznámé":fmtPct(used)}. ${shared}`;
+  const inner=`<span class="acct-name">${esc(name)}</span><span aria-hidden="true">▸</span>`+
+    `<span class="acct-win">${esc(lab)} ${used==null?"?":esc(fmtPct(used))}</span>`+
+    (used!=null&&used>=90?`<span aria-hidden="true">⚠</span>`:"")+
+    (resetAt?`<span aria-hidden="true" class="quota-until" data-reset-at="${resetAt}" data-short="1">↻ ${esc(fmtShort(resetAt-nowSec()))}</span>`:"");
+  return acc
+    ?`<a class="acct-chip${tone}" href="#${esc(acc.anchor)}" data-acct="${esc(acc.anchor)}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</a>`
+    :`<span class="acct-chip${tone}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</span>`;
+}
+function freshness(r){
+  const bars=allBars(r).map(x=>x.b);
+  const st=bars.map(b=>String(b.state||"").toUpperCase());
+  const status=String(r.status||"");
+  const reason=status&&!/^(ok|aktuální záznam)$/i.test(status)?status:"";
+  if(r.alive===false||(bars.length&&bars.every(isUnavail)))
+    return {cls:"unavail",txt:"NEDOSTUPNÉ",reason:reason||"poskytovatel nevrátil data"};
+  if(st.some(s=>s==="STALE"||s==="ZASTARALÉ")||(r.age!=null&&r.age>QUOTA_STALE_S))
+    return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
+  return {cls:"ok",txt:r.age==null?"aktuální":(r.age<60?"před chvílí":"před "+fmtDuration(r.age)),reason:""};
+}
+function renderWindow(x){
+  const b=x.b, m=gaugeMetrics(b), typ=winType(b,x.c);
+  const lab=String(b.label||""), showLab=lab&&!sameAsType(lab,typ);
+  const fc=(m.unavail||m.used>=100)?"":fcText(b.forecast);
+  const warn=!!(fc&&b.forecast&&b.forecast.will_exhaust_before_reset);
+  const credit=(typ==="kredit"&&x.c&&x.c.text&&!/^ok$/i.test(x.c.text))?String(x.c.text):"";
+  const resetHtml=m.resetAt
+    ?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
+    :((b.reset_label||credit)?`<span class="quota-reset">${b.reset_label?(typ==="kredit"?"platí do ":"reset ")+esc(b.reset_label):""}${b.reset_label&&credit?" · ":""}${esc(credit)}</span>`:"");
+  return `<div class="qc-win" title="${esc(fmtIsoText(b.title||""))}">`+
+    `<span class="win-type">${esc(typ)}</span><span class="win-label">${showLab?esc(lab):""}</span>`+
+    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(typ+" "+lab+": "+m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
+    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+resetHtml+
+    (fc?`<span class="win-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+
+  `</div>`;
+}
+function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
+function renderQuotaCard(r,table){
+  const f=freshness(r), wins=allBars(r);
+  const exh=wins.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const users=r.used_by||[];
+  const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
+  const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
+  const acts=renderActions(r,table,{lock:false});
+  return `<li class="quota-card${exh.length?" exhausted":""}"${r.anchor?` id="${esc(r.anchor)}"`:""} tabindex="-1">`+
+    `<div class="qc-head"><span class="qc-name">${esc(r.name)}</span>`+
+    (r.label?`<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${VENDOR[r.vendor]||VENDOR.other}">${esc(r.label)}</span>`:"")+
+    `<span class="fresh ${f.cls}" title="${esc(f.reason||"stáří dat od poslední aktualizace poskytovatele")}">${esc(f.txt)}${f.reason?" · "+esc(f.reason):""}</span></div>`+
+    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>x.b.label||winType(x.b,x.c)).join(", "))}</p>`:"")+
+    `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
+    `<div class="qc-wins">${wins.map(renderWindow).join("")}`+
+      textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
+    (acts?`<div class="qc-actions">${acts}</div>`:"")+
+    (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")+
+  `</li>`;
+}
+function renderQuotaSection(root,t){
+  const rows=t.rows||[];
+  const exh=rows.filter(r=>allBars(r).some(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100)).length;
+  const bad=t.up===false||!!t.error;
+  const head=q(root,".svc-head"), dot=q(root,".svc-dot"), cnt=q(root,".agents-count");
+  const look=bad?STATE.outage:exh?["bg-amber-400","","text-amber-600","bg-amber-50 border-amber-200"]:STATE.operational;
+  head.className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
+  dot.className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
+  cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
+  cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"");
+  q(root,".quota-cards").innerHTML=rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc)).join("")
+    :`<li class="text-sm text-slate-400">${esc(t.error||"Žádné účty.")}</li>`;
+  const note=q(root,".qc-note"), txt=[t.error,t.note].filter(Boolean).join(" ");
+  note.hidden=!txt; q(note,".agents-note").textContent=txt;
+}
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a[data-acct]"); if(!a) return;
+  const el=document.getElementById(a.dataset.acct); if(!el) return;
+  e.preventDefault();
+  const sec=el.closest("section"); if(sec&&sec.dataset.collapsed==="1") setCollapsed(sec,false,true);
+  const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"});
+  el.classList.add("flash"); try{ el.focus({preventScroll:true}); }catch(_){}
+  setTimeout(()=>{ const n=document.getElementById(a.dataset.acct); if(n) n.classList.remove("flash"); },2200);
+  try{ history.replaceState(null,"","#"+a.dataset.acct); }catch(_){}
+});
 function cellFor(agent, col){
   const cells=agent.cells||{};
   if(cells[col.id]) return cells[col.id];
   for(const id of (col.aliases||[])){ if(cells[id]) return cells[id]; }
   return null;
 }
-function renderColumns(root,columns){
+function renderColumns(root,columns,quotaCol=false){
   const head=q(root,"thead tr");
   head.querySelectorAll(".plugin-column").forEach(n=>n.remove());
-  columns.forEach(c=>{const th=document.createElement("th");th.className="plugin-column text-left font-medium px-2 py-2";th.textContent=c.title;head.insertBefore(th,head.lastElementChild);});
+  const titles=columns.map(c=>c.title).concat(quotaCol?["Kvóta"]:[]);
+  titles.forEach(t=>{const th=document.createElement("th");th.className="plugin-column text-left font-medium px-2 py-2";th.textContent=t;head.insertBefore(th,head.lastElementChild);});
 }
-function renderActions(a,table){
+function renderActions(a,table,{lock=true}={}){
   const stopped=a.status==="Stopped (manual)"||a.status==="Zastaveno (ručně)";
   const defs=a.plugin?(a.row_actions||[]):(a.actions===false?[]:[{id:"restart",label:"Restartovat "+a.name,icon:"restart"},
     stopped?{id:"stop",label:"Odebrat "+a.name,icon:"stop",confirm:`Odebrat agenta „${a.name}“ z Monitorování agentů? Soubory konverzace zůstanou na disku.`}
@@ -520,10 +724,15 @@ function renderActions(a,table){
   const buttons=defs.map(x=>x.icon==='reset'
     ?`<button type="button" class="agent-act reset-pill" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.confirm||x.label)}" aria-label="${esc(x.label)}">⟲ ${esc(x.label)}</button>`
     :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
-  return buttons+((a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
+  return buttons+(lock&&(a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
 }
 function renderAgents(root, agents, summary=null, columns=[]){
-  renderColumns(root, columns);
+  // Persistent agents: quota windows live once, in the account cards; each agent gets one account
+  // chip instead of duplicated 5h/Týden gauges. Columns with any non-quota (text) cell remain.
+  const isAgents=root.dataset.svc==="agents";
+  const quotaCol=isAgents&&agents.some(a=>a.quota_account||allBars(a).length);
+  if(isAgents) columns=columns.filter(c=>agents.some(a=>{const x=cellFor(a,c); return x&&!(x.bars&&x.bars.length);}));
+  renderColumns(root, columns, quotaCol);
   const tb=q(root,".agent-rows");
   const on=agents.some(a=>a.alive&&!a.needs_login); const running=agents.filter(a=>a.alive&&!a.needs_login).length;
   q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+(on?"bg-emerald-50 border-emerald-200":"bg-white border-slate-200");
@@ -539,7 +748,7 @@ function renderAgents(root, agents, summary=null, columns=[]){
     cnt.className="agents-count ml-auto text-sm font-medium "+state[2];
     q(root,".agents-note").textContent=summary.error||summary.note||"";
   }
-  if(!agents.length){tb.innerHTML=`<tr><td colspan="${6+columns.length}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"Žádní agenti."):"Žádné tmux relace.")}</td></tr>`;return;}
+  if(!agents.length){tb.innerHTML=`<tr><td colspan="${6+columns.length+(quotaCol?1:0)}" class="px-3 py-3 text-slate-400">${esc(summary?(summary.error||"Žádní agenti."):"Žádné tmux relace.")}</td></tr>`;return;}
   tb.innerHTML="";
   const svgIcon=(d)=>`<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   const ICO_SESSION=svgIcon("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71");
@@ -559,7 +768,8 @@ function renderAgents(root, agents, summary=null, columns=[]){
     }
     const ok=a.alive&&!a.needs_login; const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
     const statusTxt=a.status||(ok?"Běží":"Nečinný");
-    const statusTip=[a.status_detail||a.status,
+    const longDetail=String(a.status_detail||"").length>90;
+    const statusTip=[longDetail?a.status:(a.status_detail||a.status),
       ok&&a.latency_ms!=null?`latence ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
     const stCls=a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
     const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0";
@@ -575,9 +785,10 @@ function renderAgents(root, agents, summary=null, columns=[]){
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
       `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
       `<td class="px-2 py-1.5">${sid}</td>`+
-      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap" title="${esc(a.status_detail||'')}">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
-      `<td class="px-2 py-1.5" title="${esc(statusTip)}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}"><span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span><span class="flex flex-col">${esc(statusTxt)}</span></span></td>`+
-      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:root.dataset.svc==="agents"})}</td>`).join("")+
+      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
+      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}"><span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span><span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
+      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
+      (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
     tb.appendChild(tr);
   });
@@ -645,21 +856,25 @@ async function refresh(){
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
     if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
     renderResets(d.resets);
+    ACCTS={};
+    (d.agent_tables||[]).forEach(t=>{ if(t.kind==="quota") (t.rows||[]).forEach(r=>{ ACCTS[t.id+"|"+r.id]=r; }); });
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
     renderAgents(agentsRoot, d.agents, null, d.columns||[]); initCollapse(agentsRoot,"agents",0);
     const tables=document.getElementById("plugin-tables");
-    const wanted=(d.agent_tables||[]).map(t=>t.id).join("|");
+    const wanted=(d.agent_tables||[]).map(t=>t.id+"/"+(t.kind||"")).join("|");
     if(tables.dataset.keys!==wanted){
       tables.innerHTML="";
       (d.agent_tables||[]).forEach(t=>{
-        const root=document.getElementById("agent-table-tpl").content.firstElementChild.cloneNode(true);
+        const tplId=t.kind==="quota"?"quota-table-tpl":"agent-table-tpl";
+        const root=document.getElementById(tplId).content.firstElementChild.cloneNode(true);
         root.dataset.svc=t.id; tables.appendChild(root);
       });
       tables.dataset.keys=wanted;
     }
     (d.agent_tables||[]).forEach((t,i)=>{
       const root=tables.children[i]; q(root,"h2").textContent=t.title;
-      renderAgents(root,t.rows,t,d.columns||[]); initCollapse(root,t.id,i+1);
+      if(t.kind==="quota") renderQuotaSection(root,t); else renderAgents(root,t.rows,t,d.columns||[]);
+      initCollapse(root,t.id,i+1);
     });
     document.getElementById("plugin-loading").hidden=!d.plugin_loading;
     const errors=document.getElementById("plugin-errors"); errors.replaceChildren();
@@ -740,6 +955,7 @@ PAGE=PAGE.replace('AGENT_TABLES',
     '<div id="plugin-tables"></div>'+
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>'+
+    QUOTA_SECTION+
     '<template id="agent-table-tpl">'+AGENT_TABLE.replace('KEY','plugin').replace('HIDDEN','')
         .replace('TITLE','Agenti').replace('NOTE','')+'</template>')
 
@@ -1005,6 +1221,7 @@ def _state_data() -> dict:
         s["system_latency_n"] = len(lat_by_url)
     from .integrity import status as core_status
     agent_tables = _merge_tables_by_title(extra['tables'])
+    link_quota_accounts(agent_tables, agents, extra['patches'])
     resets = upcoming_resets(agent_tables, agents)
     # Quota history + burn-rate forecast + Telegram alerts; each swallows its own errors.
     forecasts = quota.observe(agent_tables, agents)
@@ -1056,6 +1273,74 @@ def upcoming_resets(tables: list, agents: list, now: float | None = None, limit:
                 })
     out.sort(key=lambda e: (e["reset_at"], e["source"], e["label"]))
     return out[:limit]
+
+
+def _bar_signature(cells) -> set:
+    """Identify quota windows across rows: (reset minute, rounded used %) — or the bar title when
+    a window has no reset (credits). Plugin patches copy the provider row's windows onto agent
+    rows (sometimes relabelled, e.g. "Claude 5h" → "5h"), so labels alone do not match."""
+    sig = set()
+    for cell in (cells or {}).values():
+        for b in (cell or {}).get("bars") or []:
+            ts = b.get("reset_at")
+            if type(ts) is int and ts > 0:
+                try:
+                    sig.add(("r", ts // 60, round(float(b.get("percent") or 0))))
+                except (TypeError, ValueError):
+                    continue
+            elif b.get("title"):
+                sig.add(("t", str(b["title"])))
+    return sig
+
+
+def _anchor_slug(text: str) -> str:
+    ascii_ = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_.lower()).strip("-") or "ucet"
+
+
+def link_quota_accounts(tables: list, agents: list, patches: list) -> None:
+    """Mark quota tables (``kind: "quota"``) and link each agent to the provider row (account)
+    whose windows a plugin patch copied onto it — so the UI shows one account chip per agent and
+    the windows once, in the account card. Adds ``anchor`` + ``used_by`` to provider rows and
+    ``quota_account`` to agents; the plugin API and the copied ``cells`` stay untouched.
+    An agent without patches falls back to a unique exact name match (agent "Cursor" ↔ row
+    labelled "Cursor")."""
+    rows, anchors = [], set()
+    for t in tables or []:
+        quota_rows = [r for r in t.get("rows") or [] if _bar_signature(r.get("cells"))]
+        if not quota_rows:
+            continue
+        t["kind"] = "quota"
+        for r in t.get("rows") or []:
+            base = "kvota-" + _anchor_slug(r.get("id") or r.get("name"))
+            anchor, n = base, 2
+            while anchor in anchors:
+                anchor, n = f"{base}-{n}", n + 1
+            anchors.add(anchor)
+            r["anchor"], r["used_by"] = anchor, []
+        rows += [(t, r, _bar_signature(r.get("cells"))) for r in quota_rows]
+    if not rows:
+        return
+    for a in agents or []:
+        applied = [p for p in patches or [] if p.get("row_id") == a.get("id") and p.get("cells")]
+        sig = set().union(*(_bar_signature(p["cells"]) for p in applied)) if applied else set()
+        best, score, via = None, 0, "patch"
+        for t, r, rsig in rows:
+            n = len(sig & rsig)
+            if n > score:
+                best, score = (t, r), n
+        if best is None and not applied:
+            name = (a.get("name") or "").strip().casefold()
+            hits = [(t, r) for t, r, _ in rows
+                    if name and name in ((r.get("label") or "").strip().casefold(),
+                                         (r.get("name") or "").split("·")[0].strip().casefold())]
+            if len(hits) == 1:
+                best, via = hits[0], "name"
+        if best:
+            t, r = best
+            r["used_by"].append(a.get("name") or a.get("id") or "")
+            a["quota_account"] = {"table": t.get("id"), "row": r.get("id"), "name": r.get("name") or "",
+                                  "anchor": r["anchor"], "via": via, "shared_with": r["used_by"]}
 
 
 def _merge_columns_by_title(columns: list) -> list:
