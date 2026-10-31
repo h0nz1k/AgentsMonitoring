@@ -54,7 +54,7 @@ def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
 
 AGENT_TABLE = r"""
   <section class="mb-6" data-svc="KEY" HIDDEN>
-    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
       <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
       <h2 class="text-base font-semibold">TITLE</h2>
       <span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span>
@@ -125,6 +125,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-wrap{position:relative;display:inline-block;max-width:100%}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .agent-act{min-width:var(--touch);min-height:36px;justify-content:center}
+.svc-head{min-height:var(--touch);cursor:pointer}
+.svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.svc-head h2{pointer-events:none}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:1rem}
 .toolbar button{min-height:var(--touch);min-width:var(--touch);padding:0 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:13px}
 .toolbar button:hover,.toolbar button:focus-visible{border-color:#94a3b8;outline:2px solid #38bdf8;outline-offset:1px}
@@ -150,6 +153,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
   .bg-slate-50{background-color:#020617!important}
   .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
   .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
+  .bg-amber-50{background-color:rgba(120,53,15,.3)!important}.border-amber-200{border-color:#92400e!important}
   .border-slate-200,.border-slate-100{border-color:#1e293b!important}
   .border-emerald-200{border-color:#065f46!important}
   .border-rose-200{border-color:#9f1239!important}
@@ -201,7 +205,7 @@ AGENT_TABLES
 
 <template id="svc-tpl">
   <section class="mb-6">
-    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">
+    <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
       <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
       <h2 class="svc-name text-base font-semibold"></h2>
       <span class="svc-state ml-auto text-sm font-medium text-slate-400">načítání…</span>
@@ -263,6 +267,7 @@ const STATE = {
   operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
   outage:      ["bg-rose-500", "Výpadek", "text-rose-600", "bg-rose-50 border-rose-200"],
   nodata:      ["bg-slate-300", "Bez dat / neběží", "text-slate-400", "bg-white border-slate-200"],
+  stale:       ["bg-amber-400", "Zastaralá data", "text-amber-600", "bg-amber-50 border-amber-200"],
 };
 const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emerald-100 text-emerald-700",
   "google":"bg-violet-100 text-violet-700", "gold":"bg-amber-100 text-amber-700",
@@ -355,7 +360,8 @@ function renderTimeline(root, buckets, windowDays){
 }
 function renderService(root, s){
   const st=STATE[s.state]||STATE.nodata;
-  const detail=q(root,".svc-detail"); if(detail) detail.textContent=s.detail||"";
+  const detail=q(root,".svc-detail");
+  if(detail) detail.textContent=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty níže nejsou aktuální. `:"")+(s.detail||"");
   q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+st[3];
   q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+st[0];
   const se=q(root,".svc-state"); se.textContent=st[1]; se.className="svc-state ml-auto text-sm font-medium "+st[2];
@@ -390,13 +396,14 @@ function renderRows(root, rows, details=false){
   tb.innerHTML=rows.map(r=>{
     const st=STATE[r.state]||STATE.nodata;
     const addr=r.url?r.url.replace(/^https?:\/\//,"").replace(/\/$/,""):"";
+    const staleTip=r.stale?`zastaralá data: poslední před ${fmtDuration(r.data_age)} · `:"";
     const sla=r.sla!=null?` · ${r.sla.toFixed(2)} % / ${r.sla_samples||0} vzorků`:"";
     return `<tr class="border-b border-slate-100 last:border-0">`+
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${esc(r.name)}</td>`+
       `<td class="px-2 py-1.5"><span class="text-xs text-slate-500 ${details?'break-words':'font-mono whitespace-nowrap'}">${esc(details?(r.detail||''):addr)}</span></td>`+
       `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap">${fmtLat(r.latency_ms)}</td>`+
       `<td class="px-2 py-1.5 text-slate-600 text-xs whitespace-nowrap" title="čas od posledního skutečného výpadku${esc(sla)}">${fmtDuration(r.uptime_seconds)}</td>`+
-      `<td class="px-2 py-1.5" title="${esc(r.detail||"")}${r.last_ts?" · "+esc(fmtTime(r.last_ts)):""}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${st[2]}"><span class="h-2 w-2 rounded-full ${st[0]} shrink-0" aria-hidden="true"></span>${st[1]}</span></td>`+
+      `<td class="px-2 py-1.5" title="${esc(staleTip)}${esc(r.detail||"")}${r.last_ts?" · "+esc(fmtTime(r.last_ts)):""}"><span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${st[2]}"><span class="h-2 w-2 rounded-full ${st[0]} shrink-0" aria-hidden="true"></span>${st[1]}</span></td>`+
     `</tr>`;}).join("");
 }
 function quotaStateClass(state){
@@ -628,7 +635,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("keydown",e=>{
   if(e.key!=="Enter"&&e.key!==" ") return;
-  const h=e.target.closest(".svc-head"); if(!h) return;
+  const h=e.target.closest(".svc-head"); if(!h||e.target!==h) return;
   e.preventDefault();
   const root=h.closest("section"); if(!root) return;
   setCollapsed(root, root.dataset.collapsed!=="1", true);
@@ -737,7 +744,24 @@ PAGE=PAGE.replace('AGENT_TABLES',
         .replace('TITLE','Agenti').replace('NOTE','')+'</template>')
 
 
+STALE_FACTOR = 3   # last sample older than 3 × its check interval → "Zastaralá data", never green
+
+
+def _staleness(cur, interval: int, now: float | None = None) -> tuple[str | None, bool, int | None]:
+    """(state, stale, age_seconds) for the latest sample. A sample older than STALE_FACTOR × the
+    check interval is reported as ``stale`` — a probe that stopped writing must not keep the last
+    green value forever (Telegram most showed "V provozu" from data 6 days old)."""
+    if not cur:
+        return "nodata", False, None
+    now = time.time() if now is None else now
+    age = max(0, int(now - (cur["ts"] or 0)))
+    if age > STALE_FACTOR * max(1, int(interval or 60)):
+        return "stale", True, age
+    return ("operational" if cur["up"] else "outage"), False, age
+
+
 def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
+    interval = int(cfg.get("probe", {}).get("interval_seconds", 60) or 60)
     win_days = int(cfg.get("probe", {}).get("sla_window_days", 90))
     tdays = int(cfg.get("probe", {}).get("timeline_days", 90))
     min_outage = int(cfg.get("probe", {}).get("min_outage_samples", 3))
@@ -750,10 +774,11 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
         sla_pct, samples = db.sla(name, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
         metric = s.get("metric", "latency")   # "latency" | "agents" (show running-agent count)
+        state, stale, data_age = _staleness(cur, s.get("interval_seconds") or interval)
         out.append({
             "name": name,
             "up": bool(cur and cur["up"]),
-            "state": "operational" if (cur and cur["up"]) else ("outage" if cur else "nodata"),
+            "state": state, "stale": stale, "data_age": data_age,
             "detail": cur["detail"] if cur else "no data yet",
             "last_ts": cur["ts"] if cur else None,
             "latency_ms": round(lat * 1000) if lat is not None else None,
@@ -763,7 +788,7 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "metric_sub": s.get("latency_label", "module" if s.get("command") else "health check"),
             "source": s.get("source", "config"),
             "row_details": s.get("row_details") is True,
-            "rows": _service_rows(name, win_days, min_outage),
+            "rows": _service_rows(name, win_days, min_outage, s.get("interval_seconds") or interval),
             "uptime_seconds": db.uptime_seconds(name, min_outage),
             "sla": sla_pct, "sla_window_days": win_days, "sla_samples": samples,
             "timeline": db.timeline(name, tdays * 86400, tdays), "timeline_days": tdays,
@@ -771,7 +796,7 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
     return out
 
 
-def _service_rows(service: str, win_days: int, min_outage: int) -> list[dict]:
+def _service_rows(service: str, win_days: int, min_outage: int, interval: int = 60) -> list[dict]:
     """Per-row state for a module that reports ``rows`` (one website/tunnel/db per line). Each row
     is its own sample series ``"<service> › <row>"`` with uptime and SLA like a service."""
     out = []
@@ -780,9 +805,10 @@ def _service_rows(service: str, win_days: int, min_outage: int) -> list[dict]:
         cur = db.last(rname)
         sla_pct, samples = db.sla(rname, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
+        state, stale, data_age = _staleness(cur, interval)
         out.append({"name": r["name"], "url": r.get("url") or "",
                     "up": bool(cur and cur["up"]),
-                    "state": "operational" if (cur and cur["up"]) else ("outage" if cur else "nodata"),
+                    "state": state, "stale": stale, "data_age": data_age,
                     "detail": cur["detail"] if cur else "no data yet", "last_ts": cur["ts"] if cur else None,
                     "latency_ms": round(lat * 1000) if lat is not None else None,
                     "sla": sla_pct, "sla_samples": samples,
