@@ -1,6 +1,5 @@
 from argparse import Namespace
 from contextlib import redirect_stdout
-import json  # e2e: deliberately unused (pyflakes) — sre-loop CI autofix probe
 import io
 import json
 from pathlib import Path
