@@ -3,13 +3,26 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: &docs_only
+      - "**/*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "LICENSE"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: *docs_only
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   test:
+    # Skip the 5-version matrix on draft PRs; it runs on ready_for_review.
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
