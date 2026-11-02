@@ -160,10 +160,10 @@ class PageTest(unittest.TestCase):
                        'id="fronta"', 'id="agenti"', "Fronta práce", "Vyžaduje pozornost", 'id="q-panel"',
                        "GitHub ↗", "agentsmon.queue.tab", "noopener noreferrer", "Nezařazené", "Hotovo 24 h"):
             self.assertIn(needle, page)
-        # Order: attention panel → agents → queue → quotas (plugin tables)
+        # Order: attention → quotas → agents → queue (A overview + B quotas)
         self.assertLess(page.index('id="attention"'), page.index('id="agenti"'))
         self.assertLess(page.index('id="agenti"'), page.index('id="fronta"'))
-        self.assertLess(page.index('id="fronta"'), page.index('id="plugin-tables"'))
+        self.assertLess(page.index('id="plugin-tables"'), page.index('id="agenti"'))
 
     def test_queue_links_are_github_only(self):
         self.assertIn(r"/^https:\/\/github\.com\//", dashboard.PAGE)

@@ -184,9 +184,9 @@ class ForecastUi(unittest.TestCase):
         from agentsmon import dashboard
         page = dashboard.PAGE
         self.assertIn("function fcText(f)", page)
-        self.assertIn("tempem vyčerpáno ~", page)
-        self.assertIn("(před resetem)", page)
-        self.assertIn("při resetu ~", page)
+        self.assertIn("Dojde ~", page)
+        self.assertIn("(před obnovou)", page)
+        self.assertIn("Vystačí – zbude ~", page)
         self.assertIn('class="reset-fc', page)           # chip line in 'Nejbližší resety kvót'
         self.assertIn("fcText(b.forecast)", page)         # bar tooltip
 
