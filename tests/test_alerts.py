@@ -428,5 +428,65 @@ class Sender(Base):
         self.assertIn("selhalo", Path(self.tmp.name, "alerts.log").read_text(encoding="utf-8"))
 
 
+class Redesign003Rules(Base):
+    def state(self, label="7d"):
+        with alerts._db() as c:
+            r = c.execute("SELECT level, last_sent FROM alert_state WHERE label=?", (label,)).fetchone()
+            return (r[0], r[1]) if r else None
+
+    def test_state_is_saved_even_when_sending_is_rate_limited(self):
+        self.run_eval([item(50)])
+        self.run_eval([item(81)], now=NOW + 60)
+        self.run_eval([item(96)], now=NOW + 120)            # rate limited: deferred, but level saved
+        self.assertEqual(self.state()[0], 95.0)
+        self.run_eval([item(96)], now=NOW + 600)            # no re-buffering, no send
+        self.assertEqual(len(self.sent), 1)
+        self.run_eval([item(96)], now=NOW + 60 + 1800)      # slot free → the deferred event goes out once
+        self.run_eval([item(96)], now=NOW + 60 + 3700)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("Codex · agentops 7d: 96 %", self.sent[1])
+
+    def test_partial_drop_while_deferred_sends_current_reading(self):
+        self.run_eval([item(50)])
+        self.run_eval([item(81)], now=NOW + 60)
+        self.run_eval([item(96)], now=NOW + 120)            # deferred
+        self.run_eval([item(85)], now=NOW + 300)            # partial drop: the unsent 96 is stale
+        self.run_eval([item(85)], now=NOW + 60 + 1900)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("Codex · agentops 7d: 85 %", self.sent[1])
+        self.assertNotIn("96 %", self.sent[1])
+        self.run_eval([item(30)], now=NOW + 60 + 2000)      # below 80 within the slot → 'back' deferred
+        self.run_eval([item(30)], now=NOW + 60 + 4000)
+        self.assertEqual(body(self.sent[2]), ["Codex · agentops 7d (využito 30 %)"])
+
+    def test_exhausted_fires_after_95(self):
+        self.run_eval([item(50)])
+        self.run_eval([item(96)], now=NOW + 60)
+        self.run_eval([item(100)], now=NOW + 60 + 1800)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("🛑 Vyčerpáno", self.sent[1])
+        self.assertEqual(alerts.item_thresholds([80, 95], {"used": 1}), [80, 95, 100.0])
+
+    def test_sub_limit_alerts_only_at_its_own_cap(self):
+        fable = dict(item(6, label="Fable week", source="Claude"), cap=50.0, parent="Claude week")
+        self.run_eval([fable])
+        self.run_eval([dict(fable, used=45.0)], [fc(True, source="Claude", label="Fable week")], now=NOW + 60)
+        self.assertEqual(self.sent, [])                      # no 80/95 thresholds, no forecast
+        self.run_eval([dict(fable, used=52.0)], now=NOW + 120)
+        self.run_eval([dict(fable, used=90.0)], now=NOW + 4000)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("Claude Fable week: strop 50 % dosažen (52 %)", self.sent[0])
+
+    def test_prune_orphans_drops_only_old_rows_of_gone_sources(self):
+        self.run_eval([item(10), item(10, source="Claude · Max 5x")])
+        self.run_eval([item(10), item(10, source="Old fresh")], now=NOW + 2 * 86400 - 60)
+        n = alerts.prune_orphans([item(10)], NOW + 2 * 86400)
+        self.assertEqual(n, 1)                               # "Old fresh" is younger than a day
+        with alerts._db() as c:
+            left = sorted(r[0] for r in c.execute("SELECT source FROM alert_state").fetchall())
+        self.assertEqual(left, ["Codex · agentops", "Old fresh"])
+        self.assertEqual(alerts.prune_orphans([], NOW), 0)  # no data → never wipes anything
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
@@ -2047,6 +2048,47 @@ def _bar_exhausted(b: dict) -> bool:
             or (type(used) in (int, float) and used >= 100))
 
 
+LOCAL_TZ = "Europe/Prague"
+_CZ_DAYS = ("po", "út", "st", "čt", "pá", "so", "ne")
+#: Provider window labels → Czech (the UI never shows "week"/"Included"/ISO UTC).
+_CZ_LABELS = {"7d": "týden", "5h": "5 h", "Included": "V předplatném", "Actions min": "Minuty Actions",
+              "GCP Bonus": "Kredit GCP"}
+
+
+def cz_label(label) -> str:
+    """'Claude week' → 'Claude týden', '7d' → 'týden', 'Included' → 'V předplatném'."""
+    text = str(label or "").strip()
+    if text in _CZ_LABELS:
+        return _CZ_LABELS[text]
+    text = re.sub(r"\bweek\b", "týden", text)
+    return re.sub(r"(?<=\s)5h\b", "5 h", text)
+
+
+def cz_when(ts, now: float | None = None) -> str:
+    """Local (Europe/Prague) moment: today → 'dnes 10:45', tomorrow → 'zítra 07:02',
+    otherwise 'pá 6. 11. 16:11' (year only when it differs). Empty string for no timestamp."""
+    if type(ts) not in (int, float):
+        return ""
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(LOCAL_TZ)
+    now = time.time() if now is None else now
+    d, today = datetime.fromtimestamp(ts, tz), datetime.fromtimestamp(now, tz).date()
+    hm = d.strftime("%H:%M")
+    delta = (d.date() - today).days
+    if delta == 0:
+        return f"dnes {hm}"
+    if delta == 1:
+        return f"zítra {hm}"
+    year = f"{d.year}" if d.year != today.year else ""
+    return f"{_CZ_DAYS[d.weekday()]} {d.day}. {d.month}. {year + ' ' if year else ''}{hm}"
+
+
+def _short_when(ts, now: float) -> str:
+    """'10:14' for today, otherwise the full cz_when form."""
+    w = cz_when(ts, now)
+    return w[5:] if w.startswith("dnes ") else w
+
+
 def _gh(url) -> str | None:
     return url if isinstance(url, str) and url.startswith("https://github.com/") else None
 
@@ -2095,12 +2137,12 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                        if _bar_exhausted(b)]
                 if not exh:
                     continue
-                labels = ", ".join(dict.fromkeys(str(b.get("label") or "okno") for b in exh))
+                labels = ", ".join(dict.fromkeys(cz_label(b.get("label") or "okno") for b in exh))
                 resets = [b.get("reset_at") for b in exh if type(b.get("reset_at")) is int and b["reset_at"] > now]
-                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label")]
+                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label") and b.get("reset_label") != "—"]
                 text = f"{r.get('name') or r.get('id')}: vyčerpáno {labels}"
-                if when and resets:
-                    text += f" – reset {when[0]}"
+                if resets:
+                    text += f" – obnova {cz_when(min(resets), now)}"
                 elif when:                      # no timestamp, only a period ("měsíc")
                     text += f" ({when[0]})"
                 act = next((x for x in r.get("row_actions") or [] if x.get("id") == "redeem_reset"), None)
@@ -2109,7 +2151,18 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                            "label": act.get("label") or "Uplatnit reset", "icon": act.get("icon") or "reset",
                            "confirm": act.get("confirm") or ""} if act else None)
                 add("warning", text, "#" + r["anchor"] if r.get("anchor") else "#plugin-tables", action,
-                    reset_at=min(resets) if resets else None)
+                    reset_at=min(resets) if resets else None, kind="exhausted")
+            for r in t.get("rows") or []:
+                # A scoped sub-limit (Fable inside the Claude week) only matters at its own cap.
+                for c in (r.get("cells") or {}).values():
+                    for b in (c or {}).get("bars") or []:
+                        cap, used = b.get("cap"), b.get("percent")
+                        if (type(cap) in (int, float) and type(used) in (int, float) and used >= cap
+                                and not _bar_exhausted(b)):
+                            add("warning", f"{r.get('name') or r.get('id')}: {cz_label(b.get('label'))} dosáhl stropu "
+                                f"{_cz_pct(cap)}", "#" + r["anchor"] if r.get("anchor") else "#plugin-tables",
+                                kind="cap")
+        _forecast_attention(data, now, add)
         for p in data.get("plugin_errors") or []:
             add("warning", f"Plugin {p.get('name')}: {str(p.get('detail') or 'chyba')[:140]}", "#plugin-errors")
         qd = data.get("queue") or {}
@@ -2158,15 +2211,71 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     except Exception as exc:                      # the panel must never break /api/state
         add("warning", f"Výpočet upozornění selhal: {type(exc).__name__}", None)
     out.sort(key=lambda x: _SEV_ORDER.get(x["severity"], 9))       # stable: keeps source order
-    count = sum(1 for x in out if x["severity"] in ("critical", "warning"))
-    if any(x["severity"] == "critical" for x in out):
-        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count})"}
+    crit = sum(1 for x in out if x["severity"] == "critical")
+    warn = sum(1 for x in out if x["severity"] == "warning")
+    info = sum(1 for x in out if x["severity"] == "info")
+    count = crit + warn
+    # ONE count everywhere (tab badge, header ring, "K řešení" heading): "2 + 1 info".
+    count_cs = f"{count}" + (f" + {info} info" if info else "")
+    if crit:
+        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count_cs})"}
     elif count:
-        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count})"}
+        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count_cs})"}
+    elif info:
+        overall = {"level": "ok", "text_cs": f"Vše v provozu ({info} info)"}
     else:
         overall = {"level": "ok", "text_cs": "Vše v provozu"}
-    overall.update(count=count, total=len(out))
+    overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
+                   summary_cs=_summary_sentence(out, crit, warn, info))
     return out[:ATTENTION_MAX], overall
+
+
+def _cz_pct(v) -> str:
+    """One percent format everywhere: '97 %', '6,5 %'."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "?"
+    return (f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}".replace(".", ",")) + "\u00a0%"
+
+
+def _summary_sentence(items: list, crit: int, warn: int, info: int) -> str:
+    """One sentence for the header: what is wrong, worst first."""
+    if not (crit or warn):
+        return "Vše běží, nic nečeká na tebe." if not info else f"Vše běží; {info} {_cz_plural(info, 'informace', 'informace', 'informací')} k přečtení."
+    bits = []
+    if crit:
+        bits.append(f"{crit} {_cz_plural(crit, 'kritický problém', 'kritické problémy', 'kritických problémů')}")
+    if warn:
+        bits.append(f"{warn} {_cz_plural(warn, 'věc vyžaduje', 'věci vyžadují', 'věcí vyžaduje')} pozornost")
+    lead = items[0]["text_cs"] if items else ""
+    return " a ".join(bits) + (f" — nejdřív: {lead}." if lead else ".")
+
+
+def _forecast_attention(data: dict, now: float, add) -> None:
+    """Burn-rate forecasts that run out BEFORE the window resets are 'at risk' items:
+    'Codex · agentops 5h dojde ~10:14, obnova 10:45'. Sub-limits (with their own cap) and
+    windows already exhausted are skipped; horizon ≤ 7 days."""
+    subs = {(str(r.get("name") or "").strip(), b.get("label"))
+            for t in data.get("agent_tables") or [] for r in t.get("rows") or []
+            for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
+            if isinstance(b, dict) and b.get("cap") is not None}
+    anchors = {str(r.get("name") or "").strip(): r.get("anchor")
+               for t in data.get("agent_tables") or [] for r in t.get("rows") or []}
+    for f in data.get("forecasts") or []:
+        if not isinstance(f, dict) or not f.get("will_exhaust_before_reset") or f.get("exhausted"):
+            continue
+        ex, rs = f.get("exhaust_at"), f.get("reset_at")
+        if type(ex) not in (int, float) or ex <= now or ex - now > 7 * 86400 or (f.get("source"), f.get("label")) in subs:
+            continue
+        if type(rs) in (int, float) and ex >= rs:
+            continue
+        text = f"{f.get('source')} {cz_label(f.get('label'))} dojde ~{_short_when(ex, now)}"
+        if type(rs) in (int, float):
+            text += f", obnova {_short_when(rs, now)}"
+        anchor = anchors.get(str(f.get("source") or "").strip())
+        add("warning", text, "#" + anchor if anchor else "#kvoty", kind="forecast",
+            exhaust_at=int(ex), reset_at=int(rs) if type(rs) in (int, float) else None)
 
 
 # ---- "pracuje na #N": which queue item each agent is working on (deterministic, never guessed) ----

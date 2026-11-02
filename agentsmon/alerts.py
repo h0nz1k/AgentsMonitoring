@@ -65,6 +65,7 @@ LEVEL_KINDS = ("exhausted", "threshold", "back")    # newest level event of a se
 UNKNOWN_MODELS = {"", "?", "-", "—", "–", "unknown", "neznámý", "neznámo", "n/a", "na", "none", "null"}
 
 _active = False
+_pruned = False
 _tick_lock = threading.Lock()
 _last_tick = 0.0
 _queue: queue.Queue = queue.Queue()
@@ -87,8 +88,8 @@ def start() -> None:
 
 
 def _reset_for_tests() -> None:
-    global _active, _last_tick
-    _active, _last_tick = False, 0.0
+    global _active, _last_tick, _pruned
+    _active, _last_tick, _pruned = False, 0.0, False
 
 
 def _log(msg: str) -> None:
@@ -156,6 +157,11 @@ def line_threshold(it, now, tz) -> str:
     if it["used"] >= 100:
         return f"{_name(it)}{_reset_tail(it, now, tz)}"
     return f"{_name(it)}: {fmt_pct(it['used'])}{_reset_tail(it, now, tz)}"
+
+
+def line_cap(it, now, tz) -> str:
+    """A scoped sub-limit (e.g. Fable inside the Claude week) reached its own cap."""
+    return f"{_name(it)}: strop {fmt_pct(it['cap'])} dosažen ({fmt_pct(it['used'])}){_reset_tail(it, now, tz)}"
 
 
 def line_back(it, after_reset: bool) -> str:
@@ -267,6 +273,9 @@ def _conn() -> sqlite3.Connection:
         c.execute("""CREATE TABLE IF NOT EXISTS alert_buffer(
             id INTEGER PRIMARY KEY AUTOINCREMENT, created INTEGER NOT NULL, kind TEXT NOT NULL,
             key TEXT NOT NULL, critical INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL)""")
+        cols = {r[1] for r in c.execute("PRAGMA table_info(alert_buffer)").fetchall()}
+        if "due" not in cols:                       # deferred (rate-limited) events wait until `due`
+            c.execute("ALTER TABLE alert_buffer ADD COLUMN due INTEGER NOT NULL DEFAULT 0")
         c.execute("CREATE TABLE IF NOT EXISTS alert_meta(key TEXT PRIMARY KEY, value INTEGER)")
         c.execute("""CREATE TABLE IF NOT EXISTS model_state(
             agent TEXT PRIMARY KEY, label TEXT, pending TEXT, pending_count INTEGER NOT NULL DEFAULT 0,
@@ -297,13 +306,38 @@ def _same_window(a, b) -> bool:
     return a is not None and b is not None and abs(a - b) <= quota.RESET_TOLERANCE
 
 
-def _buffer(c, ev: dict, now: float) -> None:
+def _buffer(c, ev: dict, now: float, due: int = 0) -> bool:
+    """Queue *ev* for the digest (sent once ``due`` has passed). A newer level event of the same
+    series supersedes an undelivered older one; a 'back' that cancels a still-undelivered
+    threshold/exhausted event of the same series sends nothing at all (the owner never saw the
+    alarm, so 'Kapacita zpět' would be noise). Returns False when the event was cancelled."""
     kinds = LEVEL_KINDS if ev["kind"] in LEVEL_KINDS else (ev["kind"],)
-    c.execute(f"DELETE FROM alert_buffer WHERE key=? AND kind IN ({','.join('?' * len(kinds))})",
-              (ev["key"], *kinds))
-    c.execute("INSERT INTO alert_buffer(created,kind,key,critical,text) VALUES(?,?,?,?,?)",
-              (int(now), ev["kind"], ev["key"], int(bool(ev.get("critical"))), ev["text"]))
-    _log(f"do souhrnu ({ev['kind']}): {ev['text']}")
+    marks = ",".join("?" * len(kinds))
+    if ev["kind"] == "back":
+        pending = c.execute("SELECT COUNT(*) FROM alert_buffer WHERE key=? AND kind IN ('threshold','exhausted')",
+                            (ev["key"],)).fetchone()[0]
+        if pending:
+            c.execute(f"DELETE FROM alert_buffer WHERE key=? AND kind IN ({marks})", (ev["key"], *kinds))
+            _log(f"zrušeno před odesláním (back): {ev['text']}")
+            return False
+    c.execute(f"DELETE FROM alert_buffer WHERE key=? AND kind IN ({marks})", (ev["key"], *kinds))
+    c.execute("INSERT INTO alert_buffer(created,kind,key,critical,text,due) VALUES(?,?,?,?,?,?)",
+              (int(now), ev["kind"], ev["key"], int(bool(ev.get("critical"))), ev["text"], int(due or 0)))
+    _log(f"do souhrnu ({ev['kind']}){' odloženo' if due and due > now else ''}: {ev['text']}")
+    return True
+
+
+def is_sublimit(it: dict) -> bool:
+    cap = it.get("cap")
+    return type(cap) in (int, float) and 0 < cap <= 100
+
+
+def item_thresholds(thresholds: list, it: dict) -> list:
+    """Thresholds of one series. A scoped sub-limit (``cap``: e.g. Fable inside the Claude week)
+    alerts only at its own cap; every other series always gets 100 % ("Vyčerpáno")."""
+    if is_sublimit(it):
+        return [float(it["cap"])]
+    return sorted(set(thresholds) | {100.0})
 
 
 def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
@@ -311,7 +345,6 @@ def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
     thresholds = sorted(float(t) for t in s.get("thresholds") or [] if type(t) in (int, float))
     if not thresholds:
         return []
-    lowest = thresholds[0]
     critical_at = float(s.get("critical_threshold") or 95)
     tz = _tz(s.get("timezone"))
     fmap = {(f["source"], f["label"]): f for f in forecasts or []}
@@ -319,9 +352,11 @@ def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
     with _db() as c:
         for it in items:
             used, reset_at = it["used"], it.get("reset_at")
+            ths = item_thresholds(thresholds, it)
+            lowest, sub = ths[0], is_sublimit(it)
             f = fmap.get((it["source"], it["label"]))
-            will = forecast_actionable(s, it, f, now)
-            crossed = max([t for t in thresholds if used >= t], default=0.0)
+            will = forecast_actionable(s, it, f, now) and not sub    # sub-limits: only their own cap
+            crossed = max([t for t in ths if used >= t], default=0.0)
             row = c.execute("SELECT * FROM alert_state WHERE source=? AND label=?",
                             (it["source"], it["label"])).fetchone()
             if row is None:                         # first sight → seed silently, never flood
@@ -332,7 +367,10 @@ def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
             new = dict(st)
             ev = None
             key = f"{it['source']}\x1f{it['label']}"
-            if crossed > st["level"]:
+            if crossed > st["level"] and sub:
+                ev = {"kind": "exhausted", "key": key, "critical": True, "text": line_cap(it, now, tz)}
+                new["level"] = crossed
+            elif crossed > st["level"]:
                 ev = {"kind": "exhausted" if used >= 100 else "threshold", "key": key,
                       "critical": used >= 100 or crossed >= critical_at, "text": line_threshold(it, now, tz)}
                 new["level"] = crossed
@@ -344,19 +382,34 @@ def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
                 new["level"] = 0.0
             elif st["level"] > crossed and used < st["level"] - HYSTERESIS:
                 new["level"] = crossed              # partial drop: re-arm the higher threshold quietly
+                pend = c.execute("SELECT due FROM alert_buffer WHERE key=? AND kind IN ('threshold','exhausted')",
+                                 (key,)).fetchone()
+                if pend is not None:                # an undelivered higher reading is stale now →
+                    if crossed > 0:                 # deliver the current one in the same slot instead
+                        _buffer(c, {"kind": "threshold", "key": key, "critical": crossed >= critical_at,
+                                    "text": line_threshold(it, now, tz)}, now, int(pend[0] or 0))
+                    else:
+                        c.execute("DELETE FROM alert_buffer WHERE key=? AND kind IN ('threshold','exhausted')", (key,))
             if (ev is None and will and s.get("notify_on_forecast_exhaust", True)
                     and not _same_window(st["forecast_for"] or None, reset_at)):
                 ev = {"kind": "forecast", "key": key, "critical": False, "text": line_forecast(it, f, now, tz)}
                 new["forecast_for"] = reset_at
+            due = 0
             if ev is not None:
-                if now - st["last_sent"] < int(s.get("min_interval_seconds") or 0):
-                    continue                        # rate limited → retried on a later tick
-                new["last_sent"] = int(now)
+                # Rate limit per series: the STATE is always saved (a skipped save left a stale
+                # level behind → false 'Kapacita zpět' later); only the sending is deferred to the
+                # series' next free slot. Events arriving while one is pending share that slot.
+                gap = int(s.get("min_interval_seconds") or 0)
+                last = int(st["last_sent"] or 0)
+                if last > now:
+                    due = last
+                elif now - last < gap:
+                    due = last + gap
+                new["last_sent"] = due or int(now)
             new["reset_at"] = reset_at
             if new != st:
                 _save(c, it, new, now)
-            if ev is not None:
-                _buffer(c, ev, now)
+            if ev is not None and _buffer(c, ev, now, due):
                 events.append(ev)
     return events
 
@@ -422,7 +475,8 @@ def track_models(s: dict, agents: list, now: float) -> list:
 def flush(s: dict, now: float, send) -> str | None:
     """Send the buffered events as one digest when due; returns the message (or None)."""
     with _db() as c:
-        rows = [dict(r) for r in c.execute("SELECT * FROM alert_buffer ORDER BY id").fetchall()]
+        rows = [dict(r) for r in c.execute("SELECT * FROM alert_buffer WHERE due<=? ORDER BY id",
+                                           (int(now),)).fetchall()]
         if not rows:
             return None
         window = int(s.get("digest_seconds") or 0)
@@ -441,6 +495,28 @@ def flush(s: dict, now: float, send) -> str | None:
         c.execute("INSERT OR REPLACE INTO alert_meta(key,value) VALUES('last_flush',?)", (int(now),))
     send(message)                                   # after commit: a crash can't cause a resend loop
     return message
+
+
+def prune_orphans(items: list, now: float, min_age: int = 86400) -> int:
+    """Drop ``alert_state`` rows of sources that no longer exist (renamed/removed accounts such as
+    "Claude · Max 5x"), but only rows untouched for ``min_age`` — a provider that is merely down
+    for a while keeps its dedupe state. Returns the number of removed rows. Never raises."""
+    sources = {str(it.get("source")) for it in items or [] if it.get("source")}
+    if not sources:
+        return 0
+    try:
+        with _db() as c:
+            old = [tuple(r) for r in c.execute("SELECT source, label FROM alert_state WHERE updated < ?",
+                                               (int(now - min_age),)).fetchall()]
+            gone = [r for r in old if r[0] not in sources]
+            for src, label in gone:
+                c.execute("DELETE FROM alert_state WHERE source=? AND label=?", (src, label))
+        if gone:
+            _log("úklid alert_state: " + ", ".join(f"{a} {b}" for a, b in gone))
+        return len(gone)
+    except Exception as exc:
+        _log(f"úklid alert_state přeskočen: {type(exc).__name__}: {exc}")
+        return 0
 
 
 def process(s: dict, items: list, forecasts: list, agents: list, now: float, send) -> str | None:
@@ -498,7 +574,7 @@ def _drain() -> None:
 
 def tick(cfg: dict, tables: list, agents: list, forecasts: list, now: float | None = None) -> None:
     """Evaluate alerts for the current state (dashboard server only, throttled). Never raises."""
-    global _last_tick
+    global _last_tick, _pruned
     if not _active or not _tick_lock.acquire(blocking=False):
         return
     try:
@@ -510,6 +586,9 @@ def tick(cfg: dict, tables: list, agents: list, forecasts: list, now: float | No
         if not items:                               # cold plugin cache: wait for real data
             return
         _last_tick = now
+        if not _pruned:                             # once per process, with real data in hand
+            _pruned = True
+            prune_orphans(items, now)
         process(s, items, forecasts, agents, now, lambda m: dispatch(m, s))
     except Exception as exc:
         _log(f"vyhodnocení přeskočeno: {type(exc).__name__}: {exc}")

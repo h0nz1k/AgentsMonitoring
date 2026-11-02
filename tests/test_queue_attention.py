@@ -62,7 +62,9 @@ class AttentionTest(unittest.TestCase):
         att, ov = dashboard.compute_attention({"agent_tables": tables}, now=NOW)
         self.assertEqual(len(att), 2)
         codex = att[0]
-        self.assertEqual(codex["text_cs"], "Codex · agentops: vyčerpáno 7d – reset 04.11 07:02")
+        # Czech label + local (Europe/Prague) reset moment, never "7d"/plugin reset_label
+        self.assertEqual(codex["text_cs"], "Codex · agentops: vyčerpáno týden – obnova "
+                         + dashboard.cz_when(NOW + 3600, NOW))
         self.assertEqual(codex["href"], "#kvota-agentops")
         self.assertEqual(codex["action"]["id"], "redeem_reset")
         self.assertEqual(codex["action"]["table"], "codex-quota:providers")
@@ -107,7 +109,8 @@ class AttentionTest(unittest.TestCase):
         self.assertEqual(len(att), dashboard.ATTENTION_MAX)
         self.assertEqual([a["severity"] for a in att], ["critical"] * 4 + ["info"] * 2)
         self.assertEqual(ov["total"], 8)
-        self.assertEqual(ov["text_cs"], "Kritický stav (4)")
+        self.assertEqual(ov["text_cs"], "Kritický stav (4 + 4 info)")     # one count: badge == card
+        self.assertEqual((ov["count"], ov["info"], ov["count_cs"]), (4, 4, "4 + 4 info"))
 
     def test_never_raises(self):
         att, ov = dashboard.compute_attention({"agents": [None]}, now=NOW)
