@@ -138,7 +138,13 @@ def _fmt_clock(ts, now, tz) -> str:
 
 
 def _name(it) -> str:
-    return f"{it['source']} {it['label']}"
+    """'Claude' + 'Claude 5h' → 'Claude 5h' (no doubled vendor); otherwise 'Source label'."""
+    src = str(it.get("source") or "").strip()
+    label = str(it.get("label") or "").strip()
+    head = src.split("·")[0].strip().lower()
+    if head and label.lower().startswith(head):
+        return label
+    return f"{src} {label}".strip()
 
 
 def _reset_tail(it, now, tz) -> str:
