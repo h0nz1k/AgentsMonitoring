@@ -833,7 +833,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 :root[data-theme] .quota-card,:root[data-theme] .q-item,:root[data-theme] .svc-list,:root[data-theme] .q-list{background:var(--card);border-color:var(--line)}
 :root[data-theme] .qc-users,:root[data-theme] .svc-note,:root[data-theme] .svc-lat,:root[data-theme] .pod{color:var(--muted)}
 :root[data-theme] .pod>summary,:root[data-theme] .attn-link{color:var(--info)}
-.ring-center b{font-size:18px}.topbar a,.agent-rows a,.q-title a{min-width:44px;min-height:44px;display:inline-flex;align-items:center}.agent-name[data-copy]{display:inline-flex;align-items:center;min-height:44px;cursor:pointer}
+.ring-center b{font-size:18px}.topbar a,.agent-rows a,.q-title a{min-width:44px;min-height:44px;display:inline-flex;align-items:center}.agent-name[data-copy]{display:inline-flex;align-items:center;min-width:44px;min-height:44px;cursor:pointer}
 @media(max-width:699px){.ring-center b{font-size:16px}.agent-rows td[data-label]:nth-child(n+3):not(:last-child)::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted)}.agent-rows td:nth-child(5){flex:1 1 45%}.agent-rows td:nth-child(4){flex:1 1 40%}}
 
 
