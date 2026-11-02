@@ -457,10 +457,10 @@ AGENT_TABLE = r"""
       <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
     <div class="svc-body">
-    <p class="scroll-hint text-[11px] text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
+    <p class="scroll-hint text-xs text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
     <div class="rounded-lg border border-slate-200 bg-white overflow-x-auto">
       <table class="w-full text-sm agents-table" style="table-layout:auto"><thead>
-        <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
+        <tr class="text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
           <th class="text-left font-medium px-2 py-2">Agent</th>
           <th class="text-left font-medium px-2 py-2">Model</th>
           <th class="text-left font-medium px-2 py-2">Relace / port</th>
@@ -471,7 +471,7 @@ AGENT_TABLE = r"""
         <tbody class="agent-rows"><tr><td colspan="6" class="px-3 py-3 text-slate-400">načítání…</td></tr></tbody>
       </table>
     </div>
-    <p class="agents-note text-[11px] text-slate-400 mt-2">NOTE</p>
+    <p class="agents-note text-xs text-slate-400 mt-2">NOTE</p>
     </div>
   </section>"""
 
@@ -498,7 +498,7 @@ QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="front
 PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<title>Monitorování agentů</title>
+<title>Agenti</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 <script src="/static/tailwind.js"></script>
 <style>
@@ -517,9 +517,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-gauge:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
 .quota-gauge[aria-expanded="true"]{background:#f1f5f9}
 .quota-name{flex:0 0 auto;min-width:1.75rem;color:#475569;font-weight:600}
-.reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle}
+.reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:600;white-space:nowrap;vertical-align:middle}
 .reset-pill:hover{background:#fef3c7;border-color:#f59e0b}
-.quota-until{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.quota-until{font-size:12px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
 .resets-sum{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-height:var(--touch);cursor:pointer;list-style:none}
 .resets-sum::-webkit-details-marker{display:none}
 .resets-sum::after{content:"▸";margin-left:auto;font-size:12px;color:#94a3b8}
@@ -528,7 +528,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .resets-sum:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .resets-extra .exh{color:#be123c;font-weight:700}
 .resets-list{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:0;padding:0}
-.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:11px;line-height:1.25}
+.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:12px;line-height:1.25}
 .reset-chip .reset-when{font-weight:700;font-size:12px;color:#0f172a;font-variant-numeric:tabular-nums}
 .reset-chip .reset-what{color:#334155;font-weight:600}
 .reset-chip .reset-meta{color:#64748b}
@@ -541,7 +541,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-fill{display:block;height:100%;border-radius:999px}
 .quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
 .quota-reset{flex:0 0 auto;color:#64748b;font-variant-numeric:tabular-nums}
-.quota-state{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.quota-state{flex:0 0 auto;font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
 .quota-state.ok{color:#059669}.quota-state.stale{color:#d97706}.quota-state.unavail{color:#94a3b8}
 .quota-tip{display:none;position:absolute;z-index:40;max-width:min(22rem,calc(100vw - 1.5rem));padding:8px 10px;border-radius:8px;background:#0f172a;color:#f8fafc;font-size:12px;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.25);white-space:normal;word-break:break-word}
 .quota-tip.open{display:block}
@@ -555,7 +555,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .svc-head h2{pointer-events:none}
 .scroll-hint{display:none}
-.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:11px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
+.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:12px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
 a.work-link:hover,a.work-link:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
 .work-link.blocked{border-color:#fcd34d;background:#fffbeb;color:#92400e}.work-link.awaiting_pickup{border-color:#ddd6fe;background:#f5f3ff;color:#5b21b6}
 .st-wait{color:#b45309;font-weight:600}.wait-ico{flex:0 0 auto;font-size:12px;line-height:1}
@@ -573,17 +573,17 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .quota-card:focus{outline:none}
 .qc-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
 .qc-name{font-weight:600;font-size:14px}
-.qc-users{font-size:11px;color:#64748b;margin:0}
-.qc-exh{font-size:11px;font-weight:700;color:#be123c}
-.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
+.qc-users{font-size:12px;color:#64748b;margin:0}
+.qc-exh{font-size:12px;font-weight:700;color:#be123c}
+.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
 .fresh.ok{background:#ecfdf5;color:#047857}.fresh.stale{background:#fffbeb;color:#b45309}.fresh.unavail{background:#f1f5f9;color:#475569}
 .qc-wins{display:flex;flex-direction:column;gap:.35rem}
 .qc-win{display:flex;flex-wrap:wrap;align-items:center;column-gap:.45rem;row-gap:1px;font-size:12px;min-width:0}
-.win-type{flex:0 0 3.2rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.win-type{flex:0 0 3.2rem;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
 .win-label{flex:0 1 6.5rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;font-weight:600}
 .qc-win .quota-track{flex:1 1 4rem;max-width:none}
 .qc-win .quota-pct{min-width:5.2rem}
-.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:11px}
+.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:12px}
 .win-fc{color:#64748b;font-style:italic}.win-fc.warn{color:#b45309;font-weight:600;font-style:normal}
 .qc-actions{display:flex;flex-wrap:wrap;gap:.4rem}
 .qc-actions .reset-pill{min-height:var(--touch);margin:0}
@@ -661,7 +661,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .q-title{display:flex;align-items:center;gap:.35rem;min-width:0}
 .q-title a,.q-title .q-tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:#0f172a;text-decoration:none}
 .q-title a:hover,.q-title a:focus-visible{text-decoration:underline;color:#0369a1}
-.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:700;cursor:help}
+.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:700;cursor:help}
 .q-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .5rem;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;width:max-content}
 .q-badge.running{background:#e0f2fe;color:#075985}.q-badge.queued{background:#f1f5f9;color:#334155}
 .q-badge.awaiting_pickup{background:#ede9fe;color:#5b21b6}.q-badge.blocked{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
@@ -670,7 +670,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .q-age{font-variant-numeric:tabular-nums}
 .q-pr{display:flex;align-items:center;gap:.3rem;font-size:12px;white-space:nowrap}
 .ci{font-weight:700}.ci.success{color:#059669}.ci.failure{color:#be123c}.ci.pending{color:#b45309}
-.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase}
+.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase}
 .q-extra{grid-column:2 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 .75rem;font-size:12px;color:#64748b}
 .q-extra .pod>summary{min-height:2rem;line-height:2rem}
 @media (max-width:639px){
@@ -682,102 +682,195 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   .q-extra .pod>summary{min-height:var(--touch);line-height:var(--touch)}
   .q-gh{margin-left:0}
 }
-@media (prefers-color-scheme:dark){
-  .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}.ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
-  .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}.ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
-  .attn{background:rgba(120,53,15,.25);border-color:#b45309}.attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
-  .attn-text{color:#e2e8f0}.attn-link,.q-link{color:#38bdf8}
-  .attn-item.critical .attn-ico{color:#fda4af}.attn-item.warning .attn-ico{color:#fcd34d}.attn-item.info .attn-ico{color:#7dd3fc}
-  .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}.q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
-  .q-ctr.bad{color:#fda4af;border-color:#9f1239}.q-ctr.warn{color:#fcd34d;border-color:#b45309}
-  .q-tabs{border-color:#1e293b}.q-tab{color:#94a3b8}.q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
-  .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
-  .q-list{background:#0f172a;border-color:#1e293b}.q-item{border-color:#1e293b}
-  .q-title a,.q-title .q-tt{color:#e2e8f0}.q-title a:hover{color:#38bdf8}
-  .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}.q-badge.queued{background:#1e293b;color:#cbd5e1}
-  .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}.q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
-  .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}.q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
-  .q-who,.q-age,.q-extra{color:#94a3b8}.ci.success{color:#34d399}.ci.failure{color:#fb7185}.ci.pending{color:#fbbf24}
-  .q-draft{border-color:#475569;color:#94a3b8}
-  @media (max-width:639px){.q-list{background:transparent}.q-item{background:#0f172a;border-color:#1e293b}.q-item:first-child{border-top-color:#1e293b}}
-  body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
-  .bg-white{background-color:#0f172a!important}
-  .bg-slate-50{background-color:#020617!important}
-  .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
-  .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
-  .bg-amber-50{background-color:rgba(120,53,15,.3)!important}.border-amber-200{border-color:#92400e!important}
-  .border-slate-200,.border-slate-100{border-color:#1e293b!important}
-  .border-emerald-200{border-color:#065f46!important}
-  .border-rose-200{border-color:#9f1239!important}
-  .text-slate-800,.text-slate-700{color:#e2e8f0!important}
-  .text-slate-600,.text-slate-500{color:#94a3b8!important}
-  .text-slate-400,.text-slate-300{color:#64748b!important}
-  .bg-slate-200,.bg-slate-300{background-color:#334155!important}
-  .bg-orange-100{background-color:rgba(154,52,18,.4)!important}.text-orange-700{color:#fdba74!important}
-  .bg-emerald-100{background-color:rgba(6,95,70,.4)!important}.text-emerald-700{color:#6ee7b7!important}
-  .bg-violet-100{background-color:rgba(91,33,182,.4)!important}.text-violet-700{color:#c4b5fd!important}
-  .bg-amber-100{background-color:rgba(146,64,14,.4)!important}.text-amber-700{color:#fcd34d!important}
-  .bg-rose-100{background-color:rgba(159,18,57,.4)!important}.text-rose-700{color:#fda4af!important}
-  .bg-slate-100{background-color:rgba(51,65,85,.55)!important}
-  .bg-sky-100{background-color:rgba(7,89,133,.4)!important}
-  .text-emerald-600{color:#34d399!important}.text-amber-600{color:#fbbf24!important}
-  .text-rose-600{color:#fb7185!important}.text-sky-600{color:#38bdf8!important}
-  .hover\:bg-slate-100:hover{background-color:#1e293b!important}
-  .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
-  .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
-  .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
-  .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .resets-extra .exh{color:#fda4af}
-  .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
-  .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
-  .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
-  .reset-chip .reset-fc{color:#94a3b8}.reset-chip .reset-fc.warn{color:#fbbf24}
-  .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
-  .quota-state.unavail{color:#64748b}
-  .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
-  .svc-list{background:#0f172a;border-color:#1e293b}.svc-item{border-color:#1e293b}.svc-lat,.svc-note{color:#94a3b8}
-  .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}.work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}.st-wait{color:#fbbf24}
-  .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
-  .quota-card{background:#0f172a;border-color:#1e293b}.quota-card.exhausted{border-color:#9f1239}
-  .qc-users,.win-type,.win-fc{color:#94a3b8}.win-label{color:#cbd5e1}.qc-exh{color:#fda4af}
-  .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}.fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}.fresh.unavail{background:#1e293b;color:#94a3b8}
-  .pod{color:#94a3b8}.pod>summary{color:#38bdf8}
-  .quota-gauge[aria-expanded="true"]{background:#1e293b}
-  .quota-tip{background:#e2e8f0;color:#0f172a}
-  .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
-  #toast{background:#e2e8f0!important;color:#0f172a!important}
+:root[data-theme="dark"] .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}
+:root[data-theme="dark"] .ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
+:root[data-theme="dark"] .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
+:root[data-theme="dark"] .attn{background:rgba(120,53,15,.25);border-color:#b45309}
+:root[data-theme="dark"] .attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
+:root[data-theme="dark"] .attn-text{color:#e2e8f0}
+:root[data-theme="dark"] .attn-link,:root[data-theme="dark"] .q-link{color:#38bdf8}
+:root[data-theme="dark"] .attn-item.critical .attn-ico{color:#fda4af}
+:root[data-theme="dark"] .attn-item.warning .attn-ico{color:#fcd34d}
+:root[data-theme="dark"] .attn-item.info .attn-ico{color:#7dd3fc}
+:root[data-theme="dark"] .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}
+:root[data-theme="dark"] .q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
+:root[data-theme="dark"] .q-ctr.bad{color:#fda4af;border-color:#9f1239}
+:root[data-theme="dark"] .q-ctr.warn{color:#fcd34d;border-color:#b45309}
+:root[data-theme="dark"] .q-tabs{border-color:#1e293b}
+:root[data-theme="dark"] .q-tab{color:#94a3b8}
+:root[data-theme="dark"] .q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
+:root[data-theme="dark"] .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .q-list{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .q-item{border-color:#1e293b}
+:root[data-theme="dark"] .q-title a,:root[data-theme="dark"] .q-title .q-tt{color:#e2e8f0}
+:root[data-theme="dark"] .q-title a:hover{color:#38bdf8}
+:root[data-theme="dark"] .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}
+:root[data-theme="dark"] .q-badge.queued{background:#1e293b;color:#cbd5e1}
+:root[data-theme="dark"] .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}
+:root[data-theme="dark"] .q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
+:root[data-theme="dark"] .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}
+:root[data-theme="dark"] .q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
+:root[data-theme="dark"] .q-who,:root[data-theme="dark"] .q-age,:root[data-theme="dark"] .q-extra{color:#94a3b8}
+:root[data-theme="dark"] .ci.success{color:#34d399}
+:root[data-theme="dark"] .ci.failure{color:#fb7185}
+:root[data-theme="dark"] .ci.pending{color:#fbbf24}
+:root[data-theme="dark"] .q-draft{border-color:#475569;color:#94a3b8}
+@media (max-width:639px){:root[data-theme="dark"] .q-list{background:transparent}
+:root[data-theme="dark"] .q-item{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .q-item:first-child{border-top-color:#1e293b}
 }
+:root[data-theme="dark"] body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
+:root[data-theme="dark"] .bg-white{background-color:#0f172a!important}
+:root[data-theme="dark"] .bg-slate-50{background-color:#020617!important}
+:root[data-theme="dark"] .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
+:root[data-theme="dark"] .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
+:root[data-theme="dark"] .bg-amber-50{background-color:rgba(120,53,15,.3)!important}
+:root[data-theme="dark"] .border-amber-200{border-color:#92400e!important}
+:root[data-theme="dark"] .border-slate-200,:root[data-theme="dark"] .border-slate-100{border-color:#1e293b!important}
+:root[data-theme="dark"] .border-emerald-200{border-color:#065f46!important}
+:root[data-theme="dark"] .border-rose-200{border-color:#9f1239!important}
+:root[data-theme="dark"] .text-slate-800,:root[data-theme="dark"] .text-slate-700{color:#e2e8f0!important}
+:root[data-theme="dark"] .text-slate-600,:root[data-theme="dark"] .text-slate-500{color:#94a3b8!important}
+:root[data-theme="dark"] .text-slate-400,:root[data-theme="dark"] .text-slate-300{color:#64748b!important}
+:root[data-theme="dark"] .bg-slate-200,:root[data-theme="dark"] .bg-slate-300{background-color:#334155!important}
+:root[data-theme="dark"] .bg-orange-100{background-color:rgba(154,52,18,.4)!important}
+:root[data-theme="dark"] .text-orange-700{color:#fdba74!important}
+:root[data-theme="dark"] .bg-emerald-100{background-color:rgba(6,95,70,.4)!important}
+:root[data-theme="dark"] .text-emerald-700{color:#6ee7b7!important}
+:root[data-theme="dark"] .bg-violet-100{background-color:rgba(91,33,182,.4)!important}
+:root[data-theme="dark"] .text-violet-700{color:#c4b5fd!important}
+:root[data-theme="dark"] .bg-amber-100{background-color:rgba(146,64,14,.4)!important}
+:root[data-theme="dark"] .text-amber-700{color:#fcd34d!important}
+:root[data-theme="dark"] .bg-rose-100{background-color:rgba(159,18,57,.4)!important}
+:root[data-theme="dark"] .text-rose-700{color:#fda4af!important}
+:root[data-theme="dark"] .bg-slate-100{background-color:rgba(51,65,85,.55)!important}
+:root[data-theme="dark"] .bg-sky-100{background-color:rgba(7,89,133,.4)!important}
+:root[data-theme="dark"] .text-emerald-600{color:#34d399!important}
+:root[data-theme="dark"] .text-amber-600{color:#fbbf24!important}
+:root[data-theme="dark"] .text-rose-600{color:#fb7185!important}
+:root[data-theme="dark"] .text-sky-600{color:#38bdf8!important}
+:root[data-theme="dark"] .hover\:bg-slate-100:hover{background-color:#1e293b!important}
+:root[data-theme="dark"] .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
+:root[data-theme="dark"] .sid-btn{color:#94a3b8}
+:root[data-theme="dark"] .sid-btn:hover,:root[data-theme="dark"] .sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
+:root[data-theme="dark"] .quota-name{color:#94a3b8}
+:root[data-theme="dark"] .quota-track{background:#334155}
+:root[data-theme="dark"] .quota-reset{color:#94a3b8}
+:root[data-theme="dark"] .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .resets-extra .exh{color:#fda4af}
+:root[data-theme="dark"] .reset-chip{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .reset-chip .reset-when{color:#e2e8f0}
+:root[data-theme="dark"] .reset-chip .reset-what{color:#cbd5e1}
+:root[data-theme="dark"] .reset-chip .reset-meta{color:#94a3b8}
+:root[data-theme="dark"] .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}
+:root[data-theme="dark"] .reset-chip.exhausted .reset-when{color:#fda4af}
+:root[data-theme="dark"] .reset-chip .reset-fc{color:#94a3b8}
+:root[data-theme="dark"] .reset-chip .reset-fc.warn{color:#fbbf24}
+:root[data-theme="dark"] .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
+:root[data-theme="dark"] .quota-state.unavail{color:#64748b}
+:root[data-theme="dark"] .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+:root[data-theme="dark"] .svc-list{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .svc-item{border-color:#1e293b}
+:root[data-theme="dark"] .svc-lat,:root[data-theme="dark"] .svc-note{color:#94a3b8}
+:root[data-theme="dark"] .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}
+:root[data-theme="dark"] .work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}
+:root[data-theme="dark"] .st-wait{color:#fbbf24}
+:root[data-theme="dark"] .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
+:root[data-theme="dark"] .quota-card{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .quota-card.exhausted{border-color:#9f1239}
+:root[data-theme="dark"] .qc-users,:root[data-theme="dark"] .win-type,:root[data-theme="dark"] .win-fc{color:#94a3b8}
+:root[data-theme="dark"] .win-label{color:#cbd5e1}
+:root[data-theme="dark"] .qc-exh{color:#fda4af}
+:root[data-theme="dark"] .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}
+:root[data-theme="dark"] .fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}
+:root[data-theme="dark"] .fresh.unavail{background:#1e293b;color:#94a3b8}
+:root[data-theme="dark"] .pod{color:#94a3b8}
+:root[data-theme="dark"] .pod>summary{color:#38bdf8}
+:root[data-theme="dark"] .quota-gauge[aria-expanded="true"]{background:#1e293b}
+:root[data-theme="dark"] .quota-tip{background:#e2e8f0;color:#0f172a}
+:root[data-theme="dark"] .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
+:root[data-theme="dark"] #toast{background:#e2e8f0!important;color:#0f172a!important}
+
+
+/* Redesign 003: A overview, B quota rows. Shared spacing: 4 / 8 / 12 / 16 / 24. */
+:root{--bg:#f4f5f9;--card:#fff;--tx:#172033;--muted:#566176;--line:#dce0e9;--track:#e7eaf1;--ok:#17794f;--warn:#955400;--bad:#bc2945;--info:#365db5;color-scheme:light}
+:root[data-theme="dark"]{--bg:#090c14;--card:#131925;--tx:#edf0f8;--muted:#adb7ca;--line:#2b3445;--track:#30394a;--ok:#6bddac;--warn:#f7ca78;--bad:#ff93a5;--info:#a5baff;color-scheme:dark}
+body.bg-slate-50{background:var(--bg)!important;color:var(--tx)!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;line-height:1.5}
+body *{font-size:max(12px,1em)}
+button,input,select,textarea{font-family:inherit!important}
+h1,h2,h3,.qc-name,.attn-text b{ text-wrap:balance }
+button,a[data-copy],a.work-link,.sid-btn,summary,.agent-act{min-height:44px!important;min-width:44px}
+button,a,summary,[role="button"]{touch-action:manipulation}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--info);outline-offset:3px}
+#app{max-width:1440px;padding:20px 16px 32px}
+.topbar{display:flex;align-items:center;gap:8px;margin-bottom:24px}
+.brand-mark{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#5867d8,#8c5bce);color:white;font-size:28px;flex-shrink:0}
+.brand{flex:1;min-width:0}.brand h1{font-size:26px;font-weight:750;letter-spacing:-.04em;line-height:1.1}.updated{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:6px;white-space:nowrap}
+.live-dot{width:6px;height:6px;background:var(--ok);border-radius:100%;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 12%,transparent)}.live-dot.paused{background:var(--muted);box-shadow:none}
+.topbar button{width:44px;flex-shrink:0;border:1px solid var(--line);border-radius:12px;color:var(--tx);background:var(--card);font-size:20px}
+.who{background:var(--card);color:var(--muted);border-color:var(--line)}
+.overview{padding:20px;border:1px solid var(--line);border-radius:24px;background:var(--card);margin-bottom:24px}.hero-top{display:flex;align-items:center;gap:16px}.hero-copy{min-width:0}.hero-title{font-size:22px;font-weight:700;letter-spacing:-.025em}.hero-copy p{color:var(--muted);font-size:14px;margin-top:6px}.status-ring{position:relative;flex:0 0 108px;height:108px}.status-ring svg{width:100%;height:100%;transform:rotate(-90deg)}.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.ring-center b{font-size:23px;letter-spacing:-.04em;white-space:nowrap}.ring-center span{font-size:12px;color:var(--muted)}
+.overview-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.overview-chip{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--line);color:var(--muted);font-size:13px;text-decoration:none}
+.attn,.attn.critical{background:transparent;border:0;padding:0;margin-bottom:24px}.attn h2{font-size:18px;margin-bottom:12px;font-weight:700}.attn-list{display:grid;gap:12px}.attn-item{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--card)}.attn-item+.attn-item{border-top:1px solid var(--line);margin:0}.attn-item.critical{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:linear-gradient(110deg,color-mix(in srgb,var(--bad) 8%,var(--card)),var(--card))}.attn-item.warning{background:linear-gradient(110deg,color-mix(in srgb,var(--warn) 8%,var(--card)),var(--card))}.attn-ico{font-size:20px;flex:0 0 28px}.attn-text{flex:1;min-width:180px;color:var(--tx)!important;font-size:14px}.attn-text b{font-weight:600}.attn-text p{font-size:13px;color:var(--muted)}.attn-link{display:inline-flex;align-items:center;min-height:44px;color:var(--info);font-size:13px}.attn-more{color:var(--muted)}
+.svc-head{border:0!important;background:transparent!important;padding:4px 0!important;gap:8px;margin-bottom:12px}.svc-head h2{font-size:18px}.svc-head .agents-count{font-size:12px}.svc-head .svc-dot{display:none}
+.quota-cards{display:grid;grid-template-columns:1fr;gap:16px}.quota-card{padding:18px;border-radius:20px;background:var(--card);border-color:var(--line);gap:8px}.qc-head{display:flex;align-items:center;flex-wrap:nowrap;gap:10px}.provider-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;flex:0 0 auto;background:linear-gradient(135deg,#455dc1,#8b63c4);color:#fff;font-size:14px;font-weight:700}.provider-avatar.anthropic{background:linear-gradient(135deg,#b65737,#96614d)}.provider-avatar.openai{background:linear-gradient(135deg,#19745c,#348879)}.provider-avatar.google{background:linear-gradient(135deg,#3c66ba,#7e58bb)}.provider-name{flex:1;min-width:0}.qc-name{display:block;font-size:16px;line-height:1.3;font-weight:650}.plan-label{display:block;color:var(--muted);font-size:12px}.provider-status{font-size:12px;font-weight:600;border-radius:9px;padding:5px 7px;background:var(--track);max-width:112px;text-align:center;line-height:1.3}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}.qc-users,.quota-legend{color:var(--muted);font-size:12px}.quota-legend{margin-top:4px}.qc-wins{display:block}.limit-row{display:flex;align-items:center;gap:14px;padding:14px 0}.limit-row+.limit-row{border-top:1px solid var(--line)}.limit-ring{width:72px;height:72px;flex:0 0 72px;border-radius:50%;background:conic-gradient(currentColor var(--remaining),var(--track) 0);position:relative;display:grid;place-items:center}.limit-ring::before{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.limit-ring span{position:relative;color:var(--tx);font-size:16px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}.limit-copy{min-width:0;flex:1}.limit-copy b{font-size:14px;color:var(--tx)}.limit-reset{font-size:12px;color:var(--muted);margin-top:3px}.verdict{font-size:12px;line-height:1.5;margin-top:4px}.sub-limit{margin:0 0 12px 36px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:12px}.credit-meta{padding:14px;background:var(--bg);border-radius:12px;font-size:13px;color:var(--muted)}.credit-pace{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.credit-pace b{display:block;color:var(--tx);font-size:14px}.pod{color:var(--muted)}.pod>summary{display:flex;align-items:center;color:var(--info)}
+.bg-white{background:var(--card)!important}.border-slate-100,.border-slate-200{border-color:var(--line)!important}.text-slate-400,.text-slate-300,.text-slate-500,.text-slate-600,.qc-users,.win-type,.win-fc,.q-who,.q-age,.q-extra,.svc-note,.svc-lat{color:var(--muted)!important}.text-slate-700,.text-slate-800,.attn-text,.q-title a,.q-title .q-tt{color:var(--tx)!important}
+.svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}
+.layout{display:flex;flex-direction:column;gap:8px}.col-main,.col-side{width:100%;min-width:0}#footer{font-size:12px;margin-top:24px;color:var(--muted)!important}
+@media(min-width:1000px){#app{padding:28px 32px}.layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.overview{padding:24px 28px}.status-ring{flex-basis:132px;height:132px}.ring-center b{font-size:28px}.hero-title{font-size:26px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:699px){.who{display:none}#btn-refresh{display:none}.topbar{gap:8px}.brand-mark{width:38px;height:38px}.brand h1{font-size:24px}.overview{padding:16px}.hero-top{gap:12px}.status-ring{flex-basis:96px;height:96px}.ring-center b{font-size:20px}.hero-title{font-size:20px}.hero-copy p{font-size:13px}.overview-chips{gap:6px}.overview-chip{padding:0 10px}.scroll-hint{display:none!important}.overflow-x-auto{overflow:visible!important}.agents-table,.svc-rows-wrap table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead,.svc-rows-wrap thead{display:none}.agent-rows,.svc-rows{display:grid;gap:12px}.agent-rows tr,.svc-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td,.svc-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap,.svc-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .quota-stack{max-width:100%}.agents-table{border:0}.agents-table .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0}.svc-row{flex-wrap:wrap}.svc-nm{min-width:120px}.q-tabs{flex-wrap:wrap;overflow:visible}.q-tab{min-height:44px}.q-item{border-radius:16px;padding:14px}.svc-head{flex-wrap:wrap}.svc-head h2{flex:1}.svc-head .agents-count{max-width:70%;text-align:right}.limit-copy{overflow-wrap:anywhere}}
+
+
+:root[data-theme] body.bg-slate-50{background:var(--bg)!important;color:var(--tx)!important}
+:root[data-theme] .attn,:root[data-theme] .attn.critical{background:transparent;border:0}
+:root[data-theme] .svc-head{background:transparent!important}
+:root[data-theme] .text-slate-400,:root[data-theme] .text-slate-300,:root[data-theme] .text-slate-500,:root[data-theme] .text-slate-600{color:var(--muted)!important}
+:root[data-theme] .text-slate-700,:root[data-theme] .text-slate-800{color:var(--tx)!important}
+:root[data-theme] .quota-card,:root[data-theme] .q-item,:root[data-theme] .svc-list,:root[data-theme] .q-list{background:var(--card);border-color:var(--line)}
+:root[data-theme] .qc-users,:root[data-theme] .svc-note,:root[data-theme] .svc-lat,:root[data-theme] .pod{color:var(--muted)}
+:root[data-theme] .pod>summary,:root[data-theme] .attn-link{color:var(--info)}
+.ring-center b{font-size:18px}.topbar a,.agent-rows a,.q-title a{min-width:44px;min-height:44px;display:inline-flex;align-items:center}.agent-name[data-copy]{display:inline-flex;align-items:center;min-height:44px;cursor:pointer}
+@media(max-width:699px){.ring-center b{font-size:16px}.agent-rows td[data-label]:nth-child(n+3):not(:last-child)::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted)}.agent-rows td:nth-child(5){flex:1 1 45%}.agent-rows td:nth-child(4){flex:1 1 40%}}
+
+
+/* Cards keep every agent field readable alongside the quota column, at every width. */
+.agents-table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead{display:none}.agent-rows{display:grid;gap:12px}.agent-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0;overflow:visible}.agent-rows td[data-label]:nth-child(n+3):not(:last-child)::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted)}.agent-rows td:nth-child(5){flex:1 1 45%}.agent-rows td:nth-child(4){flex:1 1 40%}
+.q-list{display:grid;gap:12px;border:0;background:transparent}.q-item{display:flex;flex-wrap:wrap;gap:8px 12px;padding:16px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card)}.q-title{flex:1 1 calc(100% - 64px)}.q-title a,.q-title .q-tt{white-space:normal;overflow:visible;overflow-wrap:anywhere}.q-extra{width:100%}.q-num a,.q-pr a{display:inline-flex;min-width:44px;min-height:44px;align-items:center}.svc-body>.overflow-x-auto{border:0!important}.agents-note{margin-top:12px}
+
+
+.quota-cards{align-items:start}
+:root[data-theme] .quota-until,:root[data-theme] .sid-btn.sid-muted,:root[data-theme] .q-tab,:root[data-theme] .q-draft{color:var(--muted)}
 </style>
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
 <div id="app" class="mx-auto px-5 py-6">
-  <header class="mb-4">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
-      <span id="overall-pill" class="ovr" title="Celkový stav">načítání…</span>
-      <span id="whoami" class="who" title="Přihlášený uživatel · role">__AGENTSMON_WHO__</span>
-    </div>
-    <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, fronty práce, kvót poskytovatelů a dostupnosti služeb.</p>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">✳</div>
+    <div class="brand"><h1>Agenti</h1><p class="updated"><span class="live-dot"></span><span id="updated-age">Načítání…</span></p></div>
+    <span id="whoami" class="who">__AGENTSMON_WHO__</span>
+    <button type="button" id="btn-pause" aria-pressed="false" aria-label="Pozastavit obnovu" title="Pozastavit obnovu">Ⅱ</button>
+    <button type="button" id="btn-theme" aria-label="Přepnout motiv" title="Přepnout motiv">◐</button>
+    <button type="button" id="btn-refresh" title="Obnovit teď" aria-label="Obnovit teď">↻</button>
   </header>
   <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
-    <h2 id="attn-h">Vyžaduje pozornost</h2>
-    <ul class="attn-list" role="list"></ul>
-    <p class="attn-more text-[11px] text-slate-500" hidden></p>
+  <section class="overview" aria-label="Celkový stav">
+    <div class="hero-top"><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
+    <div id="overview-chips" class="overview-chips"></div>
   </section>
-  <div class="toolbar" role="toolbar" aria-label="Ovládání dashboardu">
-    <button type="button" id="btn-refresh" title="Obnovit teď">Obnovit</button>
-    <button type="button" id="btn-pause" aria-pressed="false" title="Pozastavit automatickou obnovu">Pozastavit obnovu</button>
-  </div>
+  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
+    <h2 id="attn-h">K řešení</h2><ul class="attn-list" role="list"></ul>
+    <p class="attn-more" hidden></p>
+  </section>
 <div class="layout">
 <div class="col-main">
-AGENT_TABLES_MAIN
+AGENT_TABLES_SIDE
 </div>
 <div class="col-side">
-AGENT_TABLES_SIDE
+AGENT_TABLES_MAIN
   <section id="services" class="mb-6 svc-section" data-svc="services" hidden aria-label="Služby">
     <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
       <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
@@ -789,10 +882,33 @@ AGENT_TABLES_SIDE
   </section>
 </div>
 </div>
-  <p class="text-center text-[11px] text-slate-300" id="footer">automatická obnova</p>
+  <p class="text-center text-xs text-slate-300" id="footer">automatická obnova</p>
 </div>
 AGENT_TABLES_TEMPLATES
 <script>
+// Theme preference is shared by all sections; system changes apply until explicitly selected.
+const themeSystem=matchMedia("(prefers-color-scheme: dark)");
+let themeChoice=null;
+try{themeChoice=localStorage.getItem("agentsmon.theme");}catch(_){}
+function applyTheme(){document.documentElement.dataset.theme=themeChoice==="light"||themeChoice==="dark"?themeChoice:themeSystem.matches?"dark":"light";}
+applyTheme(); themeSystem.addEventListener?.("change",applyTheme);
+document.getElementById("btn-theme").addEventListener("click",()=>{themeChoice=document.documentElement.dataset.theme==="dark"?"light":"dark";try{localStorage.setItem("agentsmon.theme",themeChoice);}catch(_){}applyTheme();});
+let lastUpdated=null;
+function updateAge(){
+  const ageText=paused?"Obnova pozastavena":lastUpdated?"Aktualizováno před "+Math.max(0,Math.floor((Date.now()-lastUpdated)/1000))+" s":"Načítání…";
+  const ageNode=document.getElementById("updated-age");if(ageNode.textContent!==ageText)ageNode.textContent=ageText;
+  const dot=document.querySelector(".live-dot"), stopped=paused||document.visibilityState==="hidden";
+  if(dot.classList.contains("paused")!==stopped) dot.classList.toggle("paused",stopped);
+}
+setInterval(updateAge,1000);
+function renderOverviewChips(d){
+  const agents=[...(d.agents||[]),...(d.agent_tables||[]).filter(t=>t.kind!=="quota").flatMap(t=>t.rows||[])], services=d.services||[];
+  const limits=(d.agent_tables||[]).filter(t=>t.kind==="quota").flatMap(t=>t.rows||[]).flatMap(r=>allBars(r)).filter(x=>!x.b.parent);
+  const available=limits.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)<100).length;
+  const queue=d.queue&&d.queue.summary||{};
+  setHTML(document.getElementById("overview-chips"),[["#agenti",`Agenti ${agents.filter(a=>a.alive).length}/${agents.length}`],["#services",`Služby ${services.filter(s=>s.state==="operational").length}/${services.length}`],["#plugin-tables",`Kvóty ${available}/${limits.length}`],["#fronta",`Fronta ${Number(queue.queued||0)+Number(queue.awaiting_pickup||0)}`]].map(([href,text])=>`<a href="${href}" class="overview-chip" data-overview-link>${esc(text)}</a>`).join(""));
+}
+document.addEventListener("click",e=>{const a=e.target.closest("[data-overview-link]");if(!a)return;const el=document.querySelector(a.getAttribute("href"));if(el&&el.dataset.collapsed==="1")setCollapsed(el,false,true);});
 const STATE = {
   operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
   outage:      ["bg-rose-500", "Výpadek", "text-rose-600", "bg-rose-50 border-rose-200"],
@@ -811,12 +927,12 @@ const SERVICE_LABELS={
   "Multi-Agent System Availability":"Dostupnost multiagentního systému",
   "Multi-agent system availability":"Dostupnost multiagentního systému",
   "Telegram Bridge":"Telegram most",
-  "LANA Hermes Telegram Lane":"LANA Hermes Telegram lane",
+  "LANA Hermes Telegram Lane":"LANA Hermes · Telegram",
 };
 function serviceDisplayName(name){return SERVICE_LABELS[name]||name;}
 function fmtDuration(s){if(s==null)return "–";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;}
-function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE):"";}
+function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE,{timeZone:"Europe/Prague"}):"";}
 function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
@@ -849,14 +965,14 @@ setInterval(tickResets, 30000);
 // Burn-rate forecast (server: agentsmon/quota.py) → short Czech phrase, "" when unknown.
 function fcClock(ts){
   const d=new Date(ts*1000), n=new Date(nowSec()*1000);
-  const hm=d.toLocaleTimeString(LOCALE,{hour:"2-digit",minute:"2-digit"});
-  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{day:"numeric",month:"numeric"})+" "+hm;
+  const hm=d.toLocaleTimeString(LOCALE,{timeZone:"Europe/Prague",hour:"2-digit",minute:"2-digit"});
+  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{timeZone:"Europe/Prague",day:"numeric",month:"numeric"})+" "+hm;
 }
 function fcText(f){
   if(!f) return "";
-  if(f.will_exhaust_before_reset&&f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)} (před resetem)`;
-  if(f.projected_at_reset!=null) return `při resetu ~${Math.round(Number(f.projected_at_reset))} %`;
-  if(f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)}`;
+  if(f.will_exhaust_before_reset&&f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)} (před obnovou)`;
+  if(f.projected_at_reset!=null) return `Vystačí – zbude ~${fmtPct(Math.max(0,100-Number(f.projected_at_reset)))}`;
+  if(f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)}`;
   return "";
 }
 function initResetsPanel(){
@@ -875,7 +991,7 @@ function renderResets(list){
   const items=list||[]; box.hidden=!items.length;
   if(items.length){
     const n=items[0], ex=items.filter(e=>e.exhausted);
-    setHTML(box.querySelector(".resets-next"),`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
+    setHTML(box.querySelector(".resets-next"),`${esc(czLabel(n.source))} · ${esc(czLabel(n.label))} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
     setHTML(box.querySelector(".resets-extra"),
       (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
       `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`);
@@ -888,7 +1004,7 @@ function renderResets(list){
     const tip=[e.source,e.label,used,lead+" "+(e.reset_label||""),fc].filter(Boolean).join(" · ");
     return `<li class="reset-chip${e.exhausted?" exhausted":warn?" will-exhaust":""}" title="${esc(tip)}">`+
       `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
-      `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
+      `<span class="reset-what">${esc(czLabel(e.source))} · ${esc(czLabel(e.label))}</span>`+
       `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
       (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
   }).join(""));
@@ -906,9 +1022,9 @@ function timelineHtml(buckets, windowDays){
   }).join("");
   const start=(buckets&&buckets.length)?new Date(buckets[0].start*1000).toLocaleDateString(LOCALE):"";
   return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
-    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-[11px] text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
+    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-xs text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
     `<div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti za posledních ${esc(windowDays)} dní">${bars}</div>`+
-    `<div class="flex items-center justify-between mt-2 text-[11px] text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
+    `<div class="flex items-center justify-between mt-2 text-xs text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
     `<div class="flex items-center gap-3 flex-wrap"><span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span></div><span>teď</span></div></div>`;
@@ -920,8 +1036,8 @@ function svcMetric(s){
   return {label:"Latence",value:fmtLat(s.latency_ms),sub:s.metric_sub||"kontrola zdraví"};
 }
 function metricTile(label,value,sub){
-  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-[11px] uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
-    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-[11px] text-slate-400">${esc(sub)}</p></div>`;
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-xs uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
+    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-xs text-slate-400">${esc(sub)}</p></div>`;
 }
 // One compact list row per service: icon + name + state + latency; history & metric tiles behind a disclosure.
 function serviceItem(s, root=null){
@@ -959,7 +1075,7 @@ function renderRows(root, rows, details=false){
   // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
   if(!rows.length) return "";
   return `<div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-2"><table class="w-full text-sm"><thead>`+
-    `<tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
+    `<tr class="text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
     `<th class="rows-value-label text-left font-medium px-2 py-2">${details?"Detail":"Adresa"}</th><th class="text-left font-medium px-2 py-2">Latence</th>`+
     `<th class="text-left font-medium px-2 py-2">Běh</th><th class="text-left font-medium px-2 py-2">Stav</th></tr></thead><tbody class="svc-rows">`+
   rows.map(r=>{
@@ -1032,13 +1148,13 @@ function closeQuotaTips(except){
 function renderAgentGauge(b){
   const m=gaugeMetrics(b);
   const id="qtip-"+TIP_NS+"-"+(++tipSeq);
-  const short=m.unavail?"—":`${Math.round(m.remShow)}%`;
+  const short=m.unavail?"—":fmtPct(Math.round(m.remShow));
   return `<span class="quota-wrap">`+
     `<button type="button" class="quota-gauge" aria-expanded="false" aria-describedby="${id}" title="${esc(m.tip)}" data-quota-tip>`+
       `<span class="quota-name">${esc(b.label||"")}</span>`+
       `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
       `<span class="sr-only">${esc(m.aria)}</span>`+
-      `<span aria-hidden="true" class="text-[11px] text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
+      `<span aria-hidden="true" class="text-xs text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
       (m.resetAt&&!m.unavail?`<span aria-hidden="true" class="quota-until" data-reset-at="${m.resetAt}" data-short="1">↻ ${esc(fmtShort(m.resetAt-nowSec()))}</span>`:"")+
     `</button>`+
     `<span id="${id}" role="tooltip" class="quota-tip">${esc(m.tip)}</span>`+
@@ -1214,38 +1330,54 @@ function freshness(r){
     return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
   return {cls:"ok",txt:r.age==null?"aktuální":(r.age<60?"před chvílí":"před "+fmtDuration(r.age)),reason:""};
 }
+function localWhen(ts){
+  return new Date(Number(ts)*1000).toLocaleString(LOCALE,{timeZone:"Europe/Prague",weekday:"short",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+function czLabel(s){
+  return String(s||"").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"V předplatném").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
+}
 function renderWindow(x){
-  const b=x.b, m=gaugeMetrics(b), typ=winType(b,x.c);
-  const lab=String(b.label||""), showLab=lab&&!sameAsType(lab,typ);
-  const fc=(m.unavail||m.used>=100)?"":fcText(b.forecast);
-  const warn=!!(fc&&b.forecast&&b.forecast.will_exhaust_before_reset);
-  const credit=(typ==="kredit"&&x.c&&x.c.text&&!/^ok$/i.test(x.c.text))?String(x.c.text):"";
-  const resetHtml=m.resetAt
-    ?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
-    :((b.reset_label||credit)?`<span class="quota-reset">${b.reset_label?(typ==="kredit"?"platí do ":"reset ")+esc(b.reset_label):""}${b.reset_label&&credit?" · ":""}${esc(credit)}</span>`:"");
-  return `<div class="qc-win" title="${esc(fmtIsoText(b.title||""))}">`+
-    `<span class="win-type">${esc(typ)}</span><span class="win-label">${showLab?esc(lab):""}</span>`+
-    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(typ+" "+lab+": "+m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
-    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+resetHtml+
-    (fc?`<span class="win-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+
-  `</div>`;
+  const b=x.b, m=gaugeMetrics(b), f=b.forecast||{};
+  const tone=m.unavail?"info":m.used>=100?"bad":f.will_exhaust_before_reset||m.used>=90?"warn":"ok";
+  const reset=m.resetAt?localWhen(m.resetAt):fmtIsoText(b.reset_label||"");
+  const verdict=m.unavail?"Údaj není dostupný":m.used>=100?"Vyčerpáno"+(reset?" – obnova "+reset:""):
+    f.will_exhaust_before_reset&&f.exhaust_at?"Dojde v "+localWhen(f.exhaust_at).replace(/ (\d{2}:\d{2})$/, " kolem $1"):
+    f.projected_at_reset!=null?"Vystačí – zbude ~"+fmtPct(Math.max(0,100-Number(f.projected_at_reset))):"Předpověď zatím není dostupná";
+  return `<div class="limit-row ${tone}"><div class="limit-ring" role="img" aria-label="${esc(m.aria)}" style="--remaining:${m.remShow}%"><span>${m.unavail?"–":esc(fmtPct(Math.round(m.remShow)))}</span></div>`+
+    `<div class="limit-copy"><b>${esc(czLabel(b.label||winType(b,x.c)))}</b><p class="limit-reset">${reset?"↻ "+esc(reset):"Obnova není určena"}</p><p class="verdict ${tone}">${esc(verdict)}</p></div></div>`;
+}
+function creditMeta(wins){
+  const m=Object.assign({},...wins.map(x=>x.b.meta||{}));
+  if(m.spent_usd==null) return "";
+  const num=v=>Number(v).toLocaleString(LOCALE,{maximumFractionDigits:2});
+  const expiry=typeof m.expires_at==="number"?m.expires_at:Date.parse(m.expires_at)/1000;
+  const remainingUsd=m.remaining_usd!=null?Number(m.remaining_usd):m.initial_usd!=null?Math.max(0,Number(m.initial_usd)-Number(m.spent_usd)):null;
+  const remainingCzk=m.remaining_czk!=null?m.remaining_czk:m.currency==="CZK"?m.remaining_credit:null;
+  const days=expiry>nowSec()?Math.ceil((expiry-nowSec())/86400):null;
+  const target=days&&remainingUsd!=null?remainingUsd/days:null;
+  return `<div class="credit-meta"><p>Utraceno ≈ ${esc(num(m.spent_usd))} USD (odhad)</p>`+
+    (remainingCzk!=null?`<p>Zbývá ≈ <b>${esc(num(remainingCzk))} Kč</b></p>`:"")+
+    `<div class="credit-pace"><span>Tempo dnes<b>${m.today_usd!=null?esc(num(m.today_usd))+" USD/den":"Zatím bez údaje"}</b></span><span>Cílové tempo<b>${target!=null?esc(num(target))+" USD/den":"Zatím bez údaje"}</b></span></div>`+
+    (expiry?`<p>Platnost do ${esc(new Date(expiry*1000).toLocaleDateString(LOCALE,{timeZone:"Europe/Prague"}))}</p>`:"")+`</div>`;
 }
 function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
 function renderQuotaCard(r,table){
   const f=freshness(r), wins=allBars(r);
-  const exh=wins.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const exh=wins.filter(x=>!x.b.parent&&!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const risk=wins.some(x=>!x.b.parent&&x.b.forecast&&x.b.forecast.will_exhaust_before_reset);
+  const plan=(String(r.status_detail||"").match(/(?:^| · )plán ([^·]+)/i)||[])[1]||r.label;
+  const status=exh.length?"Vyčerpáno":risk?"Dojde před obnovou":f.cls!=="ok"?f.txt:"V pořádku";
   const users=r.used_by||[];
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
   const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
   const acts=renderActions(r,table,{lock:false});
   tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
   return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
-    `<div class="qc-head"><span class="qc-name">${esc(r.name)}</span>`+
-    (r.label?`<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${VENDOR[r.vendor]||VENDOR.other}">${esc(r.label)}</span>`:"")+
-    `<span class="fresh ${f.cls}" title="${esc(f.reason||"stáří dat od poslední aktualizace poskytovatele")}">${esc(f.txt)}${f.reason?" · "+esc(f.reason):""}</span></div>`+
+    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${esc(r.name.replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).map(n=>n[0]).join("").slice(0,2).toUpperCase())}</div><div class="provider-name"><span class="qc-name">${esc(czLabel(r.name))}</span><span class="plan-label">${esc(czLabel(plan)||"Účet poskytovatele")}</span></div>`+
+    `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(f.reason)}">${esc(status)}</span></div>`+
     (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>x.b.label||winType(x.b,x.c)).join(", "))}</p>`:"")+
     `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
-    `<div class="qc-wins">${wins.map(renderWindow).join("")}`+
+    `<p class="quota-legend">zbývá · ↻ obnova</p><div class="qc-wins">${wins.filter(x=>!x.b.parent).map(x=>renderWindow(x)+wins.filter(y=>y.b.parent===x.b.label).map(y=>`<p class="sub-limit">z toho ${esc(czLabel(y.b.label))} ${esc(fmtPct(y.b.percent))}${y.b.cap!=null?" · strop "+esc(fmtPct(y.b.cap)):""}</p>`).join("")).join("")}${creditMeta(wins)}`+
       textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
     (acts?`<div class="qc-actions">${acts}</div>`:"")+
     (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
@@ -1367,10 +1499,10 @@ function renderAgents(root, agents, summary=null, columns=[]){
       ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (kliknutím zkopírujete)">${nameInner}</span>`
       : nameInner;
     const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Otevřít @${esc(a.telegram_bot)} v Telegramu" aria-label="Telegram @${esc(a.telegram_bot)}" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9" aria-hidden="true"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
-    const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
+    const recovery=a.restart_warning?`<br><span class="text-xs text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
     const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
       `<td class="px-2 py-1.5">${sid}</td>`+
       `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
       `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
@@ -1380,6 +1512,8 @@ function renderAgents(root, agents, summary=null, columns=[]){
     return {key:a.id||a.name, cls, html};
   });
   patchRows(tb, rows, "tr");
+  const labels=[...root.querySelectorAll("thead th")].map(e=>e.textContent);
+  tb.querySelectorAll("tr").forEach(tr=>[...tr.children].forEach((td,i)=>{const label=labels[i]||"";if(td.dataset.label!==label)td.dataset.label=label;}));
 }
 document.addEventListener("click",e=>{
   const btn=e.target.closest("[data-quota-tip]");
@@ -1484,12 +1618,12 @@ function qItem(it){
     const ci=CI_ICON[pr.ci];
     prHtml=ghLink(pr.url,`PR #${esc(pr.number)}`,"q-link",`PR #${pr.number}${pr.title?": "+pr.title:""}`)+
       (ci?`<span class="ci ${esc(pr.ci)}" role="img" title="${ci[1]}" aria-label="${ci[1]}">${ci[0]}</span>`:"")+
-      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Draft</span>`:"")+
+      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Rozpracováno</span>`:"")+
       (pr.review==="APPROVED"?`<span class="ci success">schváleno</span>`:pr.review==="CHANGES_REQUESTED"?`<span class="ci failure">změny</span>`:"");
   }
   const tries=t&&(Number(t.attempts)||Number(t.max_retries))?`pokus ${Number(t.attempts)||0}${Number(t.max_retries)?"/"+Number(t.max_retries):""}`:"";
   const det=[];
-  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("lane "+t.lane); if(t.error) det.push("chyba: "+t.error); }
+  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("větev "+t.lane); if(t.error) det.push("chyba: "+t.error); }
   if(it.mismatch) det.push("⚠ "+it.mismatch);
   if((it.labels||[]).length) det.push("štítky: "+it.labels.join(", "));
   if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
@@ -1552,10 +1686,11 @@ const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],inf
 let lastAttnCount=null;
 function renderAttention(list,ov){
   const box=document.getElementById("attention"); if(!box) return;
-  const items=Array.isArray(list)?list:[], total=Math.max(items.length,Number(ov&&ov.total)||0);
+  const items=Array.isArray(list)?list:[], total=Number(ov&&ov.total)||items.length;
+  const countText=ov?(ov.count_cs||String(ov.count||0)):"0";
   box.hidden=!items.length;
   box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
-  document.getElementById("attn-h").textContent=`Vyžaduje pozornost (${total})`;
+  document.getElementById("attn-h").textContent=`K řešení (${countText})`;
   setHTML(q(box,".attn-list"),items.map(a=>{
     const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
     let link="";
@@ -1566,22 +1701,30 @@ function renderAttention(list,ov){
     }else if(ghUrl(href)){
       link=`<a class="attn-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`;
     }
+    const cut=String(a.text_cs||"").indexOf(": ");
+    const title=a.title_cs||(cut>0?a.text_cs.slice(0,cut):a.text_cs);
+    const detail=a.detail_cs||(cut>0?a.text_cs.slice(cut+2):"");
     const x=a.action;
     const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
       row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
     return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
-      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span>${esc(a.text_cs)}${cd}</span>${act}${link}</li>`;
+      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${link}</li>`;
   }).join(""));
   const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
   const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
-  pill.className="ovr "+(ov?lv:"");
-  setHTML(pill,ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–");
-  const cnt=Number(ov&&ov.count)||0;
-  document.title=(cnt?`(${cnt}) `:"")+"Monitorování agentů";
-  if(lastAttnCount!==null&&cnt!==lastAttnCount)
-    document.getElementById("attn-live").textContent=cnt?`Vyžaduje pozornost: ${cnt} ${plural(cnt,"položka","položky","položek")}`:"Vše v provozu";
-  lastAttnCount=cnt;
+  pill.className="hero-title "+lv;
+  pill.textContent=ov?ov.text_cs:"Načítání…";
+  document.getElementById("overview-summary").textContent=ov&&ov.summary_cs||"";
+  const exhausted=items.filter(a=>a.kind==="exhausted"&&a.severity!=="critical").length;
+  const parts=[[(Number(ov&&ov.critical)||0)+exhausted,"var(--bad)"],[Math.max(0,(Number(ov&&ov.warning)||0)-exhausted),"var(--warn)"],[Number(ov&&ov.info)||0,"var(--muted)"]];
+  let offset=0;
+  const segments=total?parts.map(([n,color])=>{const length=n/total*100;const svg=`<circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-dasharray="${Math.max(0,length-1)} ${101-length}" stroke-dashoffset="${-offset}"/>`;offset+=length;return n?svg:"";}).join(""):`<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ok)" stroke-width="9"/>`;
+  setHTML(document.getElementById("status-ring"),`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${total?esc(countText):"✓"}</b><span>${total?"k řešení":"v pořádku"}</span></div>`);
+  document.title=(total?`(${countText}) `:"")+"Agenti";
+  if(lastAttnCount!==null&&countText!==lastAttnCount)
+    document.getElementById("attn-live").textContent=total?`K řešení: ${countText}`:"Vše v provozu";
+  lastAttnCount=countText;
 }
 document.addEventListener("click",e=>{
   const a=e.target.closest("a[data-attn]"); if(!a||a.dataset.acct) return;   // quota links: data-acct handler
@@ -1637,7 +1780,8 @@ async function refresh(){
       box.textContent=p.name+": "+p.detail; errors.appendChild(box);
     });
     if(sectionChanged("services",d.services)) renderServices(d.services||[]);
-    document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
+    lastUpdated=Date.now(); if(sectionChanged("overview",[d.agents,d.agent_tables,d.services,d.queue])) renderOverviewChips(d);
+    document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${{clean:"beze změn",modified:"upraveno",unknown:"neznámý stav"}[d.core.state]||"neznámý stav"})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
 function copyText(text){
@@ -1691,17 +1835,20 @@ document.addEventListener("click", async e=>{
 });
 function schedulePoll(){
   clearInterval(pollTimer);
-  if(!paused) pollTimer=setInterval(refresh, POLL*1000);
+  if(!paused&&document.visibilityState!=="hidden") pollTimer=setInterval(refresh, POLL*1000);
 }
 document.getElementById("btn-refresh").addEventListener("click",()=>refresh());
 document.getElementById("btn-pause").addEventListener("click",ev=>{
   paused=!paused;
   ev.currentTarget.setAttribute("aria-pressed", paused?"true":"false");
-  ev.currentTarget.textContent=paused?"Obnovu spustit":"Pozastavit obnovu";
+  ev.currentTarget.textContent=paused?"▷":"Ⅱ";
+  ev.currentTarget.setAttribute("aria-label",paused?"Spustit obnovu":"Pozastavit obnovu");
   schedulePoll();
   showToast(paused?"Automatická obnova pozastavena":"Automatická obnova běží");
-  refresh();
+  if(!paused) refresh();
+  updateAge();
 });
+document.addEventListener("visibilitychange",()=>{schedulePoll();if(document.visibilityState==="visible"&&!paused) refresh();updateAge();});
 initResetsPanel(); refresh(); schedulePoll();
 </script></body></html>"""
 
@@ -1711,14 +1858,14 @@ PAGE=PAGE.replace('AGENT_TABLES_MAIN',
         .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
         .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
     QUEUE_SECTION+'<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
+    '<div id="plugin-tables"></div>'
     '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
     '<details class="resets-details">'
     '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
     '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
     '<span class="resets-extra text-xs"></span></summary>'
-    '<p class="text-[11px] text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
+    '<p class="text-xs text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
     '<ul class="resets-list"></ul></details></section>'
-    '<div id="plugin-tables"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
     QUOTA_SECTION+
@@ -2021,7 +2168,7 @@ SERVICE_LABELS_CS = {
     "Multi-Agent System Availability": "Dostupnost multiagentního systému",
     "Multi-agent system availability": "Dostupnost multiagentního systému",
     "Telegram Bridge": "Telegram most",
-    "LANA Hermes Telegram Lane": "LANA Hermes Telegram lane",
+    "LANA Hermes Telegram Lane": "LANA Hermes · Telegram",
 }
 _STOPPED = ("Stopped (manual)", "Zastaveno (ručně)")
 
