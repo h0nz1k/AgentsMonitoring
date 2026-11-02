@@ -30,6 +30,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "redesign-003-candidate",
+  "release": "v0.3.14-redesign-003",
   "version": "0.3.14"
 }
