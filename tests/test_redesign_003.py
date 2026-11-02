@@ -93,5 +93,18 @@ class SingleCount(unittest.TestCase):
         self.assertEqual((ov["level"], ov["text_cs"]), ("ok", "Vše v provozu (1 info)"))
 
 
+class BarMeta(unittest.TestCase):
+    def test_parent_cap_meta_are_validated(self):
+        from agentsmon import plugins
+        c = plugins.cell({"bars": [{"label": "Fable week", "percent": 6, "parent": "Claude week", "cap": 50,
+                                    "meta": {"spent_usd": 18.6, "currency": "CZK", "estimate": True}}]})
+        b = c["bars"][0]
+        self.assertEqual((b["parent"], b["cap"], b["meta"]["currency"]), ("Claude week", 50, "CZK"))
+        for bad in ({"cap": 0}, {"cap": 150}, {"meta": {"x": [1]}}, {"meta": {"Bad Key": 1}}, {"meta": "x"}):
+            with self.assertRaises(ValueError):
+                plugins.cell({"bars": [dict({"label": "x", "percent": 1}, **bad)]})
+        self.assertIn("bar_meta", plugins.FEATURES)
+
+
 if __name__ == "__main__":
     unittest.main()
