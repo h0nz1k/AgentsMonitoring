@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
@@ -456,10 +457,10 @@ AGENT_TABLE = r"""
       <span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span>
     </div>
     <div class="svc-body">
-    <p class="scroll-hint text-[11px] text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
+    <p class="scroll-hint text-xs text-slate-400 mb-1" aria-hidden="true">↔ tabulku lze posouvat do stran</p>
     <div class="rounded-lg border border-slate-200 bg-white overflow-x-auto">
       <table class="w-full text-sm agents-table" style="table-layout:auto"><thead>
-        <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
+        <tr class="text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
           <th class="text-left font-medium px-2 py-2">Agent</th>
           <th class="text-left font-medium px-2 py-2">Model</th>
           <th class="text-left font-medium px-2 py-2">Relace / port</th>
@@ -470,7 +471,7 @@ AGENT_TABLE = r"""
         <tbody class="agent-rows"><tr><td colspan="6" class="px-3 py-3 text-slate-400">načítání…</td></tr></tbody>
       </table>
     </div>
-    <p class="agents-note text-[11px] text-slate-400 mt-2">NOTE</p>
+    <p class="agents-note text-xs text-slate-400 mt-2">NOTE</p>
     </div>
   </section>"""
 
@@ -491,13 +492,13 @@ QUOTA_SECTION = r"""<template id="quota-table-tpl">
 </template>"""
 
 
-QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul></div></div></section>'
+QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul><button type="button" class="queue-more" hidden></button></div></div></section>'
 
 
 PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<title>Monitorování agentů</title>
+<title>Agenti</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 <script src="/static/tailwind.js"></script>
 <style>
@@ -516,9 +517,9 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-gauge:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
 .quota-gauge[aria-expanded="true"]{background:#f1f5f9}
 .quota-name{flex:0 0 auto;min-width:1.75rem;color:#475569;font-weight:600}
-.reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle}
+.reset-pill{display:inline-flex;align-items:center;gap:.25rem;margin:0 .25rem;padding:.1rem .5rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:600;white-space:nowrap;vertical-align:middle}
 .reset-pill:hover{background:#fef3c7;border-color:#f59e0b}
-.quota-until{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.quota-until{font-size:12px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
 .resets-sum{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-height:var(--touch);cursor:pointer;list-style:none}
 .resets-sum::-webkit-details-marker{display:none}
 .resets-sum::after{content:"▸";margin-left:auto;font-size:12px;color:#94a3b8}
@@ -527,7 +528,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .resets-sum:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .resets-extra .exh{color:#be123c;font-weight:700}
 .resets-list{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:0;padding:0}
-.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:11px;line-height:1.25}
+.reset-chip{display:flex;flex-direction:column;gap:1px;min-width:9.5rem;padding:.35rem .6rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#fff;font-size:12px;line-height:1.25}
 .reset-chip .reset-when{font-weight:700;font-size:12px;color:#0f172a;font-variant-numeric:tabular-nums}
 .reset-chip .reset-what{color:#334155;font-weight:600}
 .reset-chip .reset-meta{color:#64748b}
@@ -540,7 +541,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .quota-fill{display:block;height:100%;border-radius:999px}
 .quota-pct{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:3.5rem;text-align:right}
 .quota-reset{flex:0 0 auto;color:#64748b;font-variant-numeric:tabular-nums}
-.quota-state{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.quota-state{flex:0 0 auto;font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
 .quota-state.ok{color:#059669}.quota-state.stale{color:#d97706}.quota-state.unavail{color:#94a3b8}
 .quota-tip{display:none;position:absolute;z-index:40;max-width:min(22rem,calc(100vw - 1.5rem));padding:8px 10px;border-radius:8px;background:#0f172a;color:#f8fafc;font-size:12px;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.25);white-space:normal;word-break:break-word}
 .quota-tip.open{display:block}
@@ -554,7 +555,7 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 .svc-head:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 .svc-head h2{pointer-events:none}
 .scroll-hint{display:none}
-.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:11px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
+.work-link{display:inline-flex;align-items:center;gap:.15rem;min-height:28px;margin-left:.35rem;padding:0 .45rem;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#0369a1;font-size:12px;font-weight:700;text-decoration:none;font-variant-numeric:tabular-nums;vertical-align:middle;white-space:nowrap}
 a.work-link:hover,a.work-link:focus-visible{border-color:#38bdf8;outline:2px solid #38bdf8;outline-offset:1px}
 .work-link.blocked{border-color:#fcd34d;background:#fffbeb;color:#92400e}.work-link.awaiting_pickup{border-color:#ddd6fe;background:#f5f3ff;color:#5b21b6}
 .st-wait{color:#b45309;font-weight:600}.wait-ico{flex:0 0 auto;font-size:12px;line-height:1}
@@ -572,17 +573,17 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .quota-card:focus{outline:none}
 .qc-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
 .qc-name{font-weight:600;font-size:14px}
-.qc-users{font-size:11px;color:#64748b;margin:0}
-.qc-exh{font-size:11px;font-weight:700;color:#be123c}
-.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
+.qc-users{font-size:12px;color:#64748b;margin:0}
+.qc-exh{font-size:12px;font-weight:700;color:#be123c}
+.fresh{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:.1rem .5rem;margin-left:auto}
 .fresh.ok{background:#ecfdf5;color:#047857}.fresh.stale{background:#fffbeb;color:#b45309}.fresh.unavail{background:#f1f5f9;color:#475569}
 .qc-wins{display:flex;flex-direction:column;gap:.35rem}
 .qc-win{display:flex;flex-wrap:wrap;align-items:center;column-gap:.45rem;row-gap:1px;font-size:12px;min-width:0}
-.win-type{flex:0 0 3.2rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.win-type{flex:0 0 3.2rem;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
 .win-label{flex:0 1 6.5rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;font-weight:600}
 .qc-win .quota-track{flex:1 1 4rem;max-width:none}
 .qc-win .quota-pct{min-width:5.2rem}
-.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:11px}
+.qc-win .quota-reset,.qc-win .win-fc{flex:1 0 100%;padding-left:3.65rem;font-size:12px}
 .win-fc{color:#64748b;font-style:italic}.win-fc.warn{color:#b45309;font-weight:600;font-style:normal}
 .qc-actions{display:flex;flex-wrap:wrap;gap:.4rem}
 .qc-actions .reset-pill{min-height:var(--touch);margin:0}
@@ -660,7 +661,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .q-title{display:flex;align-items:center;gap:.35rem;min-width:0}
 .q-title a,.q-title .q-tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:#0f172a;text-decoration:none}
 .q-title a:hover,.q-title a:focus-visible{text-decoration:underline;color:#0369a1}
-.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:700;cursor:help}
+.q-mm{flex:0 0 auto;display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .4rem;border:1px solid #fcd34d;border-radius:999px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:700;cursor:help}
 .q-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .5rem;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;width:max-content}
 .q-badge.running{background:#e0f2fe;color:#075985}.q-badge.queued{background:#f1f5f9;color:#334155}
 .q-badge.awaiting_pickup{background:#ede9fe;color:#5b21b6}.q-badge.blocked{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
@@ -669,7 +670,7 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
 .q-age{font-variant-numeric:tabular-nums}
 .q-pr{display:flex;align-items:center;gap:.3rem;font-size:12px;white-space:nowrap}
 .ci{font-weight:700}.ci.success{color:#059669}.ci.failure{color:#be123c}.ci.pending{color:#b45309}
-.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase}
+.q-draft{padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase}
 .q-extra{grid-column:2 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 .75rem;font-size:12px;color:#64748b}
 .q-extra .pod>summary{min-height:2rem;line-height:2rem}
 @media (max-width:639px){
@@ -681,102 +682,207 @@ a.acct-chip:hover,a.acct-chip:focus-visible{border-color:#38bdf8;outline:2px sol
   .q-extra .pod>summary{min-height:var(--touch);line-height:var(--touch)}
   .q-gh{margin-left:0}
 }
-@media (prefers-color-scheme:dark){
-  .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}.ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
-  .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}.ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
-  .attn{background:rgba(120,53,15,.25);border-color:#b45309}.attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
-  .attn-text{color:#e2e8f0}.attn-link,.q-link{color:#38bdf8}
-  .attn-item.critical .attn-ico{color:#fda4af}.attn-item.warning .attn-ico{color:#fcd34d}.attn-item.info .attn-ico{color:#7dd3fc}
-  .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}.q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
-  .q-ctr.bad{color:#fda4af;border-color:#9f1239}.q-ctr.warn{color:#fcd34d;border-color:#b45309}
-  .q-tabs{border-color:#1e293b}.q-tab{color:#94a3b8}.q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
-  .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
-  .q-list{background:#0f172a;border-color:#1e293b}.q-item{border-color:#1e293b}
-  .q-title a,.q-title .q-tt{color:#e2e8f0}.q-title a:hover{color:#38bdf8}
-  .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}.q-badge.queued{background:#1e293b;color:#cbd5e1}
-  .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}.q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
-  .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}.q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
-  .q-who,.q-age,.q-extra{color:#94a3b8}.ci.success{color:#34d399}.ci.failure{color:#fb7185}.ci.pending{color:#fbbf24}
-  .q-draft{border-color:#475569;color:#94a3b8}
-  @media (max-width:639px){.q-list{background:transparent}.q-item{background:#0f172a;border-color:#1e293b}.q-item:first-child{border-top-color:#1e293b}}
-  body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
-  .bg-white{background-color:#0f172a!important}
-  .bg-slate-50{background-color:#020617!important}
-  .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
-  .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
-  .bg-amber-50{background-color:rgba(120,53,15,.3)!important}.border-amber-200{border-color:#92400e!important}
-  .border-slate-200,.border-slate-100{border-color:#1e293b!important}
-  .border-emerald-200{border-color:#065f46!important}
-  .border-rose-200{border-color:#9f1239!important}
-  .text-slate-800,.text-slate-700{color:#e2e8f0!important}
-  .text-slate-600,.text-slate-500{color:#94a3b8!important}
-  .text-slate-400,.text-slate-300{color:#64748b!important}
-  .bg-slate-200,.bg-slate-300{background-color:#334155!important}
-  .bg-orange-100{background-color:rgba(154,52,18,.4)!important}.text-orange-700{color:#fdba74!important}
-  .bg-emerald-100{background-color:rgba(6,95,70,.4)!important}.text-emerald-700{color:#6ee7b7!important}
-  .bg-violet-100{background-color:rgba(91,33,182,.4)!important}.text-violet-700{color:#c4b5fd!important}
-  .bg-amber-100{background-color:rgba(146,64,14,.4)!important}.text-amber-700{color:#fcd34d!important}
-  .bg-rose-100{background-color:rgba(159,18,57,.4)!important}.text-rose-700{color:#fda4af!important}
-  .bg-slate-100{background-color:rgba(51,65,85,.55)!important}
-  .bg-sky-100{background-color:rgba(7,89,133,.4)!important}
-  .text-emerald-600{color:#34d399!important}.text-amber-600{color:#fbbf24!important}
-  .text-rose-600{color:#fb7185!important}.text-sky-600{color:#38bdf8!important}
-  .hover\:bg-slate-100:hover{background-color:#1e293b!important}
-  .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
-  .sid-btn{color:#94a3b8}.sid-btn:hover,.sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
-  .quota-name{color:#94a3b8}.quota-track{background:#334155}.quota-reset{color:#94a3b8}
-  .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .resets-extra .exh{color:#fda4af}
-  .reset-chip{background:#0f172a;border-color:#1e293b}.reset-chip .reset-when{color:#e2e8f0}
-  .reset-chip .reset-what{color:#cbd5e1}.reset-chip .reset-meta{color:#94a3b8}
-  .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}.reset-chip.exhausted .reset-when{color:#fda4af}
-  .reset-chip .reset-fc{color:#94a3b8}.reset-chip .reset-fc.warn{color:#fbbf24}
-  .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
-  .quota-state.unavail{color:#64748b}
-  .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
-  .svc-list{background:#0f172a;border-color:#1e293b}.svc-item{border-color:#1e293b}.svc-lat,.svc-note{color:#94a3b8}
-  .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}.work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}.st-wait{color:#fbbf24}
-  .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
-  .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
-  .quota-card{background:#0f172a;border-color:#1e293b}.quota-card.exhausted{border-color:#9f1239}
-  .qc-users,.win-type,.win-fc{color:#94a3b8}.win-label{color:#cbd5e1}.qc-exh{color:#fda4af}
-  .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}.fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}.fresh.unavail{background:#1e293b;color:#94a3b8}
-  .pod{color:#94a3b8}.pod>summary{color:#38bdf8}
-  .quota-gauge[aria-expanded="true"]{background:#1e293b}
-  .quota-tip{background:#e2e8f0;color:#0f172a}
-  .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
-  #toast{background:#e2e8f0!important;color:#0f172a!important}
+:root[data-theme="dark"] .ovr{background:#0f172a;border-color:#334155;color:#cbd5e1}
+:root[data-theme="dark"] .ovr.ok{background:rgba(6,95,70,.35);border-color:#065f46;color:#6ee7b7}
+:root[data-theme="dark"] .ovr.warning{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .ovr.critical{background:rgba(136,19,55,.35);border-color:#9f1239;color:#fda4af}
+:root[data-theme="dark"] .attn{background:rgba(120,53,15,.25);border-color:#b45309}
+:root[data-theme="dark"] .attn.critical{background:rgba(136,19,55,.25);border-color:#9f1239}
+:root[data-theme="dark"] .attn-text{color:#e2e8f0}
+:root[data-theme="dark"] .attn-link,:root[data-theme="dark"] .q-link{color:#38bdf8}
+:root[data-theme="dark"] .attn-item.critical .attn-ico{color:#fda4af}
+:root[data-theme="dark"] .attn-item.warning .attn-ico{color:#fcd34d}
+:root[data-theme="dark"] .attn-item.info .attn-ico{color:#7dd3fc}
+:root[data-theme="dark"] .q-ctr{background:#0f172a;border-color:#334155;color:#e2e8f0}
+:root[data-theme="dark"] .q-ctr[aria-pressed="true"]{background:rgba(7,89,133,.5);border-color:#38bdf8;color:#e0f2fe}
+:root[data-theme="dark"] .q-ctr.bad{color:#fda4af;border-color:#9f1239}
+:root[data-theme="dark"] .q-ctr.warn{color:#fcd34d;border-color:#b45309}
+:root[data-theme="dark"] .q-tabs{border-color:#1e293b}
+:root[data-theme="dark"] .q-tab{color:#94a3b8}
+:root[data-theme="dark"] .q-tab[aria-selected="true"]{color:#38bdf8;border-bottom-color:#38bdf8}
+:root[data-theme="dark"] .q-note{background:rgba(120,53,15,.3);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .q-list{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .q-item{border-color:#1e293b}
+:root[data-theme="dark"] .q-title a,:root[data-theme="dark"] .q-title .q-tt{color:#e2e8f0}
+:root[data-theme="dark"] .q-title a:hover{color:#38bdf8}
+:root[data-theme="dark"] .q-mm{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .q-badge.running{background:rgba(7,89,133,.45);color:#bae6fd}
+:root[data-theme="dark"] .q-badge.queued{background:#1e293b;color:#cbd5e1}
+:root[data-theme="dark"] .q-badge.awaiting_pickup{background:rgba(91,33,182,.4);color:#ddd6fe}
+:root[data-theme="dark"] .q-badge.blocked{background:rgba(120,53,15,.35);color:#fcd34d;border-color:#b45309}
+:root[data-theme="dark"] .q-badge.failed{background:rgba(136,19,55,.35);color:#fda4af;border-color:#9f1239}
+:root[data-theme="dark"] .q-badge.done{background:rgba(6,95,70,.4);color:#6ee7b7}
+:root[data-theme="dark"] .q-who,:root[data-theme="dark"] .q-age,:root[data-theme="dark"] .q-extra{color:#94a3b8}
+:root[data-theme="dark"] .ci.success{color:#34d399}
+:root[data-theme="dark"] .ci.failure{color:#fb7185}
+:root[data-theme="dark"] .ci.pending{color:#fbbf24}
+:root[data-theme="dark"] .q-draft{border-color:#475569;color:#94a3b8}
+@media (max-width:639px){:root[data-theme="dark"] .q-list{background:transparent}
+:root[data-theme="dark"] .q-item{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .q-item:first-child{border-top-color:#1e293b}
 }
+:root[data-theme="dark"] body.bg-slate-50{background-color:#020617!important;color:#e2e8f0!important}
+:root[data-theme="dark"] .bg-white{background-color:#0f172a!important}
+:root[data-theme="dark"] .bg-slate-50{background-color:#020617!important}
+:root[data-theme="dark"] .bg-emerald-50{background-color:rgba(6,78,59,.35)!important}
+:root[data-theme="dark"] .bg-rose-50{background-color:rgba(136,19,55,.35)!important}
+:root[data-theme="dark"] .bg-amber-50{background-color:rgba(120,53,15,.3)!important}
+:root[data-theme="dark"] .border-amber-200{border-color:#92400e!important}
+:root[data-theme="dark"] .border-slate-200,:root[data-theme="dark"] .border-slate-100{border-color:#1e293b!important}
+:root[data-theme="dark"] .border-emerald-200{border-color:#065f46!important}
+:root[data-theme="dark"] .border-rose-200{border-color:#9f1239!important}
+:root[data-theme="dark"] .text-slate-800,:root[data-theme="dark"] .text-slate-700{color:#e2e8f0!important}
+:root[data-theme="dark"] .text-slate-600,:root[data-theme="dark"] .text-slate-500{color:#94a3b8!important}
+:root[data-theme="dark"] .text-slate-400,:root[data-theme="dark"] .text-slate-300{color:#64748b!important}
+:root[data-theme="dark"] .bg-slate-200,:root[data-theme="dark"] .bg-slate-300{background-color:#334155!important}
+:root[data-theme="dark"] .bg-orange-100{background-color:rgba(154,52,18,.4)!important}
+:root[data-theme="dark"] .text-orange-700{color:#fdba74!important}
+:root[data-theme="dark"] .bg-emerald-100{background-color:rgba(6,95,70,.4)!important}
+:root[data-theme="dark"] .text-emerald-700{color:#6ee7b7!important}
+:root[data-theme="dark"] .bg-violet-100{background-color:rgba(91,33,182,.4)!important}
+:root[data-theme="dark"] .text-violet-700{color:#c4b5fd!important}
+:root[data-theme="dark"] .bg-amber-100{background-color:rgba(146,64,14,.4)!important}
+:root[data-theme="dark"] .text-amber-700{color:#fcd34d!important}
+:root[data-theme="dark"] .bg-rose-100{background-color:rgba(159,18,57,.4)!important}
+:root[data-theme="dark"] .text-rose-700{color:#fda4af!important}
+:root[data-theme="dark"] .bg-slate-100{background-color:rgba(51,65,85,.55)!important}
+:root[data-theme="dark"] .bg-sky-100{background-color:rgba(7,89,133,.4)!important}
+:root[data-theme="dark"] .text-emerald-600{color:#34d399!important}
+:root[data-theme="dark"] .text-amber-600{color:#fbbf24!important}
+:root[data-theme="dark"] .text-rose-600{color:#fb7185!important}
+:root[data-theme="dark"] .text-sky-600{color:#38bdf8!important}
+:root[data-theme="dark"] .hover\:bg-slate-100:hover{background-color:#1e293b!important}
+:root[data-theme="dark"] .hover\:bg-rose-50:hover{background-color:rgba(136,19,55,.35)!important}
+:root[data-theme="dark"] .sid-btn{color:#94a3b8}
+:root[data-theme="dark"] .sid-btn:hover,:root[data-theme="dark"] .sid-btn:focus-visible{color:#38bdf8;background:#1e293b}
+:root[data-theme="dark"] .quota-name{color:#94a3b8}
+:root[data-theme="dark"] .quota-track{background:#334155}
+:root[data-theme="dark"] .quota-reset{color:#94a3b8}
+:root[data-theme="dark"] .reset-pill{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .resets-extra .exh{color:#fda4af}
+:root[data-theme="dark"] .reset-chip{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .reset-chip .reset-when{color:#e2e8f0}
+:root[data-theme="dark"] .reset-chip .reset-what{color:#cbd5e1}
+:root[data-theme="dark"] .reset-chip .reset-meta{color:#94a3b8}
+:root[data-theme="dark"] .reset-chip.exhausted{background:rgba(136,19,55,.3);border-color:#9f1239}
+:root[data-theme="dark"] .reset-chip.exhausted .reset-when{color:#fda4af}
+:root[data-theme="dark"] .reset-chip .reset-fc{color:#94a3b8}
+:root[data-theme="dark"] .reset-chip .reset-fc.warn{color:#fbbf24}
+:root[data-theme="dark"] .reset-chip.will-exhaust{background:rgba(120,53,15,.3);border-color:#b45309}
+:root[data-theme="dark"] .quota-state.unavail{color:#64748b}
+:root[data-theme="dark"] .acct-chip{background:#0f172a;border-color:#334155;color:#e2e8f0}
+:root[data-theme="dark"] .svc-list{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .svc-item{border-color:#1e293b}
+:root[data-theme="dark"] .svc-lat,:root[data-theme="dark"] .svc-note{color:#94a3b8}
+:root[data-theme="dark"] .work-link{background:rgba(7,89,133,.35);border-color:#0369a1;color:#bae6fd}
+:root[data-theme="dark"] .work-link.blocked{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .work-link.awaiting_pickup{background:rgba(91,33,182,.35);border-color:#6d28d9;color:#ddd6fe}
+:root[data-theme="dark"] .st-wait{color:#fbbf24}
+:root[data-theme="dark"] .acct-chip.warn{background:rgba(120,53,15,.35);border-color:#b45309;color:#fcd34d}
+:root[data-theme="dark"] .acct-chip.err{background:rgba(136,19,55,.3);border-color:#9f1239;color:#fda4af}
+:root[data-theme="dark"] .quota-card{background:#0f172a;border-color:#1e293b}
+:root[data-theme="dark"] .quota-card.exhausted{border-color:#9f1239}
+:root[data-theme="dark"] .qc-users,:root[data-theme="dark"] .win-type,:root[data-theme="dark"] .win-fc{color:#94a3b8}
+:root[data-theme="dark"] .win-label{color:#cbd5e1}
+:root[data-theme="dark"] .qc-exh{color:#fda4af}
+:root[data-theme="dark"] .fresh.ok{background:rgba(6,95,70,.4);color:#6ee7b7}
+:root[data-theme="dark"] .fresh.stale{background:rgba(120,53,15,.4);color:#fcd34d}
+:root[data-theme="dark"] .fresh.unavail{background:#1e293b;color:#94a3b8}
+:root[data-theme="dark"] .pod{color:#94a3b8}
+:root[data-theme="dark"] .pod>summary{color:#38bdf8}
+:root[data-theme="dark"] .quota-gauge[aria-expanded="true"]{background:#1e293b}
+:root[data-theme="dark"] .quota-tip{background:#e2e8f0;color:#0f172a}
+:root[data-theme="dark"] .toolbar button{background:#0f172a;border-color:#1e293b;color:#e2e8f0}
+:root[data-theme="dark"] #toast{background:#e2e8f0!important;color:#0f172a!important}
+
+
+/* Redesign 003: A overview, B quota rows. Shared spacing: 4 / 8 / 12 / 16 / 24. */
+:root{--bg:#f4f5f9;--card:#fff;--tx:#172033;--muted:#566176;--line:#dce0e9;--track:#e7eaf1;--ok:#17794f;--warn:#955400;--bad:#bc2945;--info:#365db5;color-scheme:light}
+:root[data-theme="dark"]{--bg:#090c14;--card:#131925;--tx:#edf0f8;--muted:#adb7ca;--line:#2b3445;--track:#30394a;--ok:#6bddac;--warn:#f7ca78;--bad:#ff93a5;--info:#a5baff;color-scheme:dark}
+body.bg-slate-50{background:var(--bg)!important;color:var(--tx)!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;line-height:1.5}
+body *{font-size:max(12px,1em)}
+button,input,select,textarea{font-family:inherit!important}
+h1,h2,h3,.qc-name,.attn-text b{ text-wrap:balance }
+button,a[data-copy],a.work-link,.sid-btn,summary,.agent-act{min-height:44px!important;min-width:44px}
+button,a,summary,[role="button"]{touch-action:manipulation}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--info);outline-offset:3px}
+#app{max-width:1440px;padding:20px 16px 32px}
+.topbar{display:flex;align-items:center;gap:8px;margin-bottom:24px}
+.brand-mark{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#5867d8,#8c5bce);color:white;font-size:28px;flex-shrink:0}
+.brand{flex:1;min-width:0}.brand h1{font-size:26px;font-weight:750;letter-spacing:-.04em;line-height:1.1}.updated{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:6px;white-space:nowrap}
+.live-dot{width:6px;height:6px;background:var(--ok);border-radius:100%;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 12%,transparent)}.live-dot.paused{background:var(--muted);box-shadow:none}
+.topbar button{width:44px;flex-shrink:0;border:1px solid var(--line);border-radius:12px;color:var(--tx);background:var(--card);font-size:20px}
+.who{background:var(--card);color:var(--muted);border-color:var(--line)}
+.overview{padding:20px;border:1px solid var(--line);border-radius:24px;background:var(--card);margin-bottom:24px}.hero-top{display:flex;align-items:center;gap:16px}.hero-copy{min-width:0}.hero-title{font-size:22px;font-weight:700;letter-spacing:-.025em}.hero-copy p{color:var(--muted);font-size:14px;margin-top:6px}.status-ring{position:relative;flex:0 0 108px;height:108px}.status-ring svg{width:100%;height:100%;transform:rotate(-90deg)}.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.ring-center b{font-size:23px;letter-spacing:-.04em;white-space:nowrap}.ring-center span{font-size:12px;color:var(--muted)}
+.overview-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.overview-chip{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--line);color:var(--muted);font-size:13px;text-decoration:none}
+.attn,.attn.critical{background:transparent;border:0;padding:0;margin-bottom:24px}.attn h2{font-size:18px;margin-bottom:12px;font-weight:700}.attn-list{display:grid;gap:12px}.attn-item{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--card)}.attn-item+.attn-item{border-top:1px solid var(--line);margin:0}.attn-item.critical{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:linear-gradient(110deg,color-mix(in srgb,var(--bad) 8%,var(--card)),var(--card))}.attn-item.warning{background:linear-gradient(110deg,color-mix(in srgb,var(--warn) 8%,var(--card)),var(--card))}.attn-ico{font-size:20px;flex:0 0 28px}.attn-text{flex:1;min-width:180px;color:var(--tx)!important;font-size:14px}.attn-text b{font-weight:600}.attn-text p{font-size:13px;color:var(--muted)}.attn-link{display:inline-flex;align-items:center;min-height:44px;color:var(--info);font-size:13px}.attn-more{color:var(--muted)}
+.svc-head{border:0!important;background:transparent!important;padding:4px 0!important;gap:8px;margin-bottom:12px}.svc-head h2{font-size:18px}.svc-head .agents-count{font-size:12px}.svc-head .svc-dot{display:none}
+.quota-cards{display:grid;grid-template-columns:1fr;gap:16px}.quota-card{padding:18px;border-radius:20px;background:var(--card);border-color:var(--line);gap:8px}.qc-head{display:flex;align-items:center;flex-wrap:nowrap;gap:10px}.provider-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;flex:0 0 auto;background:linear-gradient(135deg,#455dc1,#8b63c4);color:#fff;font-size:14px;font-weight:700}.provider-avatar.anthropic{background:linear-gradient(135deg,#b65737,#96614d)}.provider-avatar.openai{background:linear-gradient(135deg,#19745c,#348879)}.provider-avatar.google{background:linear-gradient(135deg,#3c66ba,#7e58bb)}.provider-name{flex:1;min-width:0}.qc-name{display:block;font-size:16px;line-height:1.3;font-weight:650}.plan-label{display:block;color:var(--muted);font-size:12px}.provider-status{font-size:12px;font-weight:600;border-radius:9px;padding:5px 7px;background:var(--track);max-width:112px;text-align:center;line-height:1.3}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}.qc-users,.quota-legend{color:var(--muted);font-size:12px}.quota-legend{margin-top:4px}.qc-wins{display:block}.limit-row{display:flex;align-items:center;gap:14px;padding:14px 0}.limit-row+.limit-row{border-top:1px solid var(--line)}.limit-ring{width:72px;height:72px;flex:0 0 72px;border-radius:50%;background:conic-gradient(currentColor var(--remaining),var(--track) 0);position:relative;display:grid;place-items:center}.limit-ring::before{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.limit-ring span{position:relative;color:var(--tx);font-size:16px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}.limit-copy{min-width:0;flex:1}.limit-copy b{font-size:14px;color:var(--tx)}.limit-reset{font-size:12px;color:var(--muted);margin-top:3px}.verdict{font-size:12px;line-height:1.5;margin-top:4px}.sub-limit{margin:0 0 12px 36px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:12px}.credit-meta{padding:14px;background:var(--bg);border-radius:12px;font-size:13px;color:var(--muted)}.credit-pace{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.credit-pace b{display:block;color:var(--tx);font-size:14px}.pod{color:var(--muted)}.pod>summary{display:flex;align-items:center;color:var(--info)}
+.bg-white{background:var(--card)!important}.border-slate-100,.border-slate-200{border-color:var(--line)!important}.text-slate-400,.text-slate-300,.text-slate-500,.text-slate-600,.qc-users,.win-type,.win-fc,.q-who,.q-age,.q-extra,.svc-note,.svc-lat{color:var(--muted)!important}.text-slate-700,.text-slate-800,.attn-text,.q-title a,.q-title .q-tt{color:var(--tx)!important}
+.svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}
+.layout{display:flex;flex-direction:column;gap:8px}.col-main,.col-side{width:100%;min-width:0}#footer{font-size:12px;margin-top:24px;color:var(--muted)!important}
+@media(min-width:1000px){#app{padding:28px 32px}.layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.overview{padding:24px 28px}.status-ring{flex-basis:132px;height:132px}.ring-center b{font-size:28px}.hero-title{font-size:26px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:699px){.who{display:none}#btn-refresh{display:none}.topbar{gap:8px}.brand-mark{width:38px;height:38px}.brand h1{font-size:24px}.overview{padding:16px}.hero-top{gap:12px}.status-ring{flex-basis:96px;height:96px}.ring-center b{font-size:20px}.hero-title{font-size:20px}.hero-copy p{font-size:13px}.overview-chips{gap:6px}.overview-chip{padding:0 10px}.scroll-hint{display:none!important}.overflow-x-auto{overflow:visible!important}.agents-table,.svc-rows-wrap table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead,.svc-rows-wrap thead{display:none}.agent-rows,.svc-rows{display:grid;gap:12px}.agent-rows tr,.svc-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td,.svc-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap,.svc-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .quota-stack{max-width:100%}.agents-table{border:0}.agents-table .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0}.svc-row{flex-wrap:wrap}.svc-nm{min-width:120px}.q-tabs{flex-wrap:wrap;overflow:visible}.q-tab{min-height:44px}.q-item{border-radius:16px;padding:14px}.svc-head{flex-wrap:wrap}.svc-head h2{flex:1}.svc-head .agents-count{max-width:70%;text-align:right}.limit-copy{overflow-wrap:anywhere}}
+
+
+:root[data-theme] body.bg-slate-50{background:var(--bg)!important;color:var(--tx)!important}
+:root[data-theme] .attn,:root[data-theme] .attn.critical{background:transparent;border:0}
+:root[data-theme] .svc-head{background:transparent!important}
+:root[data-theme] .text-slate-400,:root[data-theme] .text-slate-300,:root[data-theme] .text-slate-500,:root[data-theme] .text-slate-600{color:var(--muted)!important}
+:root[data-theme] .text-slate-700,:root[data-theme] .text-slate-800{color:var(--tx)!important}
+:root[data-theme] .quota-card,:root[data-theme] .q-item,:root[data-theme] .svc-list,:root[data-theme] .q-list{background:var(--card);border-color:var(--line)}
+:root[data-theme] .qc-users,:root[data-theme] .svc-note,:root[data-theme] .svc-lat,:root[data-theme] .pod{color:var(--muted)}
+:root[data-theme] .pod>summary,:root[data-theme] .attn-link{color:var(--info)}
+.ring-center b{font-size:18px}.topbar a,.agent-rows a,.q-title a{min-width:44px;min-height:44px;display:inline-flex;align-items:center}.agent-name[data-copy]{display:inline-flex;align-items:center;min-width:44px;min-height:44px;cursor:pointer}
+@media(max-width:699px){.ring-center b{font-size:16px}.agent-rows td[data-label]:nth-child(n+3):not(:last-child)::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted)}.agent-rows td:nth-child(5){flex:1 1 45%}.agent-rows td:nth-child(4){flex:1 1 40%}}
+
+
+/* Cards keep every agent field readable alongside the quota column, at every width. */
+.agents-table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead{display:none}.agent-rows{display:grid;gap:12px}.agent-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0;overflow:visible}.agent-rows td[data-label]:nth-child(n+3):not(:last-child)::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted)}.agent-rows td:nth-child(5){flex:1 1 45%}.agent-rows td:nth-child(4){flex:1 1 40%}
+.q-list{display:grid;gap:12px;border:0;background:transparent}.q-item{display:flex;flex-wrap:wrap;gap:8px 12px;padding:16px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card)}.q-title{flex:1 1 calc(100% - 64px)}.q-title a,.q-title .q-tt{white-space:normal;overflow:visible;overflow-wrap:anywhere}.q-extra{width:100%}.q-num a,.q-pr a{display:inline-flex;min-width:44px;min-height:44px;align-items:center}.svc-body>.overflow-x-auto{border:0!important}.agents-note{margin-top:12px}
+
+
+.quota-cards{align-items:start}
+:root[data-theme] .quota-until,:root[data-theme] .sid-btn.sid-muted,:root[data-theme] .q-tab,:root[data-theme] .q-draft{color:var(--muted)}
+
+/* Round 2: balanced columns, one count model and compact operational rows. */
+.overview{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.overview-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;gap:8px}.overview-chip{gap:8px;line-height:1.5;padding:10px;align-items:flex-start}.status-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:currentColor;margin-top:6px}.overview-info{color:var(--muted);font-size:12px;margin:8px 0 0 112px}.ring-center b{font-size:32px!important}.hero-title{font-size:22px}.hero-copy p{line-height:1.6}.hero-copy{flex:1}#hero-resets{border-top:1px solid var(--line);padding-top:12px}#hero-resets h3{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px}#hero-resets li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:12px}#hero-resets small{display:block;color:var(--muted);font-size:12px}#hero-resets b{font-weight:500;white-space:nowrap;color:var(--info)}
+.quota-cards{align-items:stretch}.quota-card{height:100%}.provider-status{white-space:nowrap;max-width:none;flex-shrink:0}.qc-name{text-wrap:initial}.plan-label{margin-top:2px}.qc-actions{margin-top:auto}.qc-note{font-size:12px;color:var(--muted);border:0;background:transparent}.qc-note summary{color:var(--muted)!important}.pod{font-size:12px}.pod-body{overflow-wrap:anywhere}.q-tabs{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;gap:4px;padding:4px;background:var(--track);border-radius:12px}.q-tab{white-space:nowrap;flex:0 0 auto;border:0;border-radius:8px;padding:8px 10px}.q-tab[aria-selected="true"]{background:var(--card);color:var(--tx)}.q-title a,.q-title .q-tt{display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.5;min-height:0}.q-num:empty,.q-pr:empty,.q-who:empty{display:none}.q-title{flex:1 1 calc(100% - 64px)}.q-extra .pod{width:100%}.q-counters{gap:2px}.q-sep{display:none}.q-item{gap:8px 12px}.q-badge{white-space:nowrap}
+.agent-rows tr{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px!important}.agent-rows td{padding:0!important;min-width:0;max-width:100%}.agent-rows td:first-child{font-size:14px}.agent-rows td:nth-child(2){text-align:right}.agent-rows td:nth-child(3){grid-column:1;font-size:12px}.agent-rows td:nth-child(4){grid-column:1}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;justify-self:end;align-self:center}.agent-rows td:last-child{grid-column:1 / -1;justify-self:end}.agent-rows td:empty{display:none}.agent-rows td::before{display:none!important}.agent-rows .agent-name{min-height:44px}.agent-rows .acct-chip{font-size:12px;max-width:190px}.agents-note:empty{display:none}.st-wait{background:transparent!important;color:var(--warn)!important}.svc-nm{font-size:14px}.svc-row{gap:8px}.attn-more{padding:8px 12px;border:1px solid var(--line);border-radius:10px}.attn-item[hidden]{display:none}.attn-list{grid-template-columns:1fr}.attn-text{min-width:150px}.attn-link{margin-left:40px}.layout{gap:24px}.col-side{display:flex;flex-direction:column}.col-side #fronta{order:0}.col-side #agenti{order:1}.col-side #plugin-agent-tables{order:2}.col-side #services{order:3}
+.credit-remaining{font-size:16px;color:var(--tx);margin-bottom:6px}.credit-pace{display:block;margin:10px 0}.qc-note summary{font-weight:400}.quota-card .pod{margin-top:auto}
+@media(min-width:1100px){.layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:28px}.overview{padding:20px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}.overview-chips{grid-column:1/-1}.overview-info{margin-left:124px}.status-ring{flex-basis:108px;height:108px}.hero-title{font-size:20px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-top{align-items:center;gap:12px} .overview .status-ring{flex-basis:108px;height:108px}.hero-copy p{font-size:12px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}.attn-item{align-content:start}.attn-text{min-width:140px}.attn-link{margin-top:auto}#hero-resets{border-top:0;border-left:1px solid var(--line);padding:0 0 0 16px}#hero-resets ol{display:grid;gap:4px}#hero-resets li{display:block;border-left:2px solid var(--line);padding-left:10px}#hero-resets b{display:block;margin-top:4px}}
+@media(min-width:700px) and (max-width:1099px){.layout{display:flex}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:699px){#hero-resets{display:none}.overview-chip{font-size:12px}.provider-avatar{width:34px;height:34px;border-radius:10px}.qc-head{gap:8px}.qc-name{font-size:15px}.quota-card{padding:16px}.overview-info{margin-left:108px}.hero-title{font-size:19px}.hero-copy p{font-size:12px}.attn-text{min-width:180px}.agent-rows .acct-chip{max-width:155px}}
+
+/* Compact rows share the same structure, including agents without quota data. */
+.queue-more{min-height:44px;padding:8px 14px;margin-top:12px;border:1px solid var(--line);border-radius:12px;color:var(--info);background:var(--card);font-size:13px}.q-title a{min-height:44px!important}.q-item{padding:12px 14px}.q-extra .pod>summary{min-height:44px;line-height:44px}.q-extra{display:flex;align-items:center;gap:10px}.q-extra>span{white-space:nowrap}.q-extra .pod{width:auto}.agent-rows{gap:8px}.agent-rows tr{gap:0 12px!important}.agent-rows td:nth-child(3){grid-column:1;grid-row:2;align-self:start}.agent-rows td:nth-child(4){grid-column:1;grid-row:3;align-self:start}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;align-self:start;max-width:100%}.agent-rows td:last-child{grid-column:2;grid-row:4;min-height:44px}.agent-rows .acct-chip{flex-wrap:nowrap!important;border-radius:10px;padding:0 8px;max-width:180px;gap:6px}.agent-rows .acct-name{max-width:100px}.agent-rows .acct-win{white-space:nowrap}.agent-rows td:first-child{min-height:44px;display:flex;align-items:center}.agent-rows td:nth-child(2){align-self:center}.agent-rows td:nth-child(3),.agent-rows td:nth-child(4){line-height:22px}.agent-rows td:last-child:empty{display:none}.agent-rows td:nth-child(5):last-child{grid-row:2 / span 2}.q-link,.work-link{color:var(--info)}
+@media(min-width:1100px){.agent-rows tr{grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center}.agent-rows td:first-child{grid-column:1;grid-row:1}.agent-rows td:nth-child(2){grid-column:2;grid-row:1}.agent-rows td:nth-child(3){grid-column:1;grid-row:2}.agent-rows td:nth-child(4){grid-column:1;grid-row:3}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2}.agent-rows td:last-child{grid-column:3;grid-row:1 / span 3;display:flex;flex-direction:column;align-self:center}.agent-rows .agent-act{min-width:44px}.agent-rows .acct-chip{max-width:180px}.agent-rows .acct-name{max-width:95px}}
 </style>
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
 <div id="app" class="mx-auto px-5 py-6">
-  <header class="mb-4">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <h1 class="text-xl font-semibold tracking-tight">Monitorování agentů</h1>
-      <span id="overall-pill" class="ovr" title="Celkový stav">načítání…</span>
-      <span id="whoami" class="who" title="Přihlášený uživatel · role">__AGENTSMON_WHO__</span>
-    </div>
-    <p class="text-sm text-slate-500 mt-1">Přehled persistentních agentů, fronty práce, kvót poskytovatelů a dostupnosti služeb.</p>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">✳</div>
+    <div class="brand"><h1>Agenti</h1><p class="updated"><span class="live-dot"></span><span id="updated-age">Načítání…</span></p></div>
+    <span id="whoami" class="who">__AGENTSMON_WHO__</span>
+    <button type="button" id="btn-pause" aria-pressed="false" aria-label="Pozastavit obnovu" title="Pozastavit obnovu">Ⅱ</button>
+    <button type="button" id="btn-theme" aria-label="Přepnout motiv" title="Přepnout motiv">◐</button>
+    <button type="button" id="btn-refresh" title="Obnovit teď" aria-label="Obnovit teď">↻</button>
   </header>
   <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
-    <h2 id="attn-h">Vyžaduje pozornost</h2>
-    <ul class="attn-list" role="list"></ul>
-    <p class="attn-more text-[11px] text-slate-500" hidden></p>
+<div class="layout"><div class="col-main">
+  <section class="overview" aria-label="Celkový stav">
+    <div class="hero-content"><div class="hero-top"><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
+    <p id="overview-info" class="overview-info"></p></div><aside id="hero-resets" aria-label="Nejbližší obnovy"></aside><div id="overview-chips" class="overview-chips"></div>
   </section>
-  <div class="toolbar" role="toolbar" aria-label="Ovládání dashboardu">
-    <button type="button" id="btn-refresh" title="Obnovit teď">Obnovit</button>
-    <button type="button" id="btn-pause" aria-pressed="false" title="Pozastavit automatickou obnovu">Pozastavit obnovu</button>
-  </div>
-<div class="layout">
-<div class="col-main">
-AGENT_TABLES_MAIN
+  <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
+    <h2 id="attn-h">K řešení</h2><ul class="attn-list" role="list"></ul>
+    <button type="button" class="attn-more" hidden></button>
+  </section>
+AGENT_TABLES_SIDE
 </div>
 <div class="col-side">
-AGENT_TABLES_SIDE
+AGENT_TABLES_MAIN
   <section id="services" class="mb-6 svc-section" data-svc="services" hidden aria-label="Služby">
     <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true">
       <span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span>
@@ -788,10 +894,37 @@ AGENT_TABLES_SIDE
   </section>
 </div>
 </div>
-  <p class="text-center text-[11px] text-slate-300" id="footer">automatická obnova</p>
+  <p class="text-center text-xs text-slate-300" id="footer">automatická obnova</p>
 </div>
 AGENT_TABLES_TEMPLATES
 <script>
+// Theme preference is shared by all sections; system changes apply until explicitly selected.
+const themeSystem=matchMedia("(prefers-color-scheme: dark)");
+let themeChoice=null;
+try{themeChoice=localStorage.getItem("agentsmon.theme");}catch(_){}
+function applyTheme(){document.documentElement.dataset.theme=themeChoice==="light"||themeChoice==="dark"?themeChoice:themeSystem.matches?"dark":"light";}
+applyTheme(); themeSystem.addEventListener?.("change",applyTheme);
+document.getElementById("btn-theme").addEventListener("click",()=>{themeChoice=document.documentElement.dataset.theme==="dark"?"light":"dark";try{localStorage.setItem("agentsmon.theme",themeChoice);}catch(_){}applyTheme();});
+let lastUpdated=null;
+function updateAge(){
+  const ageText=paused?"Obnova pozastavena":lastUpdated?((Date.now()-lastUpdated)<60000?"Právě aktualizováno":"Aktualizováno před "+fmtDuration((Date.now()-lastUpdated)/1000)):"Načítání…";
+  const ageNode=document.getElementById("updated-age");if(ageNode.textContent!==ageText)ageNode.textContent=ageText;
+  const dot=document.querySelector(".live-dot"), stopped=paused||document.visibilityState==="hidden";
+  if(dot.classList.contains("paused")!==stopped) dot.classList.toggle("paused",stopped);
+}
+setInterval(updateAge,1000);
+function renderOverviewChips(d){
+  const agents=[...(d.agents||[]),...(d.agent_tables||[]).filter(t=>t.kind!=="quota").flatMap(t=>t.rows||[])], services=d.services||[];
+  const queue=d.queue&&d.queue.summary||{}, n=k=>Number(queue[k]||0);
+  const issues=(d.attention||[]).filter(a=>["exhausted","forecast","cap"].includes(a.kind)).length;
+  const alive=agents.filter(a=>a.alive&&!a.needs_login).length, healthy=services.filter(s=>s.state==="operational").length;
+  const chips=[["#agenti",`Agenti ${alive}/${agents.length}`,alive===agents.length?"ok":"bad"],
+    ["#services",`Služby ${healthy}/${services.length}`,healthy===services.length?"ok":"bad"],
+    ["#plugin-tables",`Kvóty · ${issues} ${plural(issues,"problém","problémy","problémů")}`,issues?"warn":"ok"],
+    ["#fronta",`Fronta · ${n("failed")} selhala · ${n("blocked")} blokována · ${n("queued")+n("awaiting_pickup")} čeká`,n("failed")?"bad":n("blocked")?"warn":"ok"]];
+  setHTML(document.getElementById("overview-chips"),chips.map(([href,text,tone])=>`<a href="${href}" class="overview-chip" data-overview-link><i class="status-dot ${tone}" aria-hidden="true"></i><span>${esc(text)}</span></a>`).join(""));
+}
+document.addEventListener("click",e=>{const a=e.target.closest("[data-overview-link]");if(!a)return;const el=document.querySelector(a.getAttribute("href"));if(el&&el.dataset.collapsed==="1")setCollapsed(el,false,true);});
 const STATE = {
   operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
   outage:      ["bg-rose-500", "Výpadek", "text-rose-600", "bg-rose-50 border-rose-200"],
@@ -810,12 +943,12 @@ const SERVICE_LABELS={
   "Multi-Agent System Availability":"Dostupnost multiagentního systému",
   "Multi-agent system availability":"Dostupnost multiagentního systému",
   "Telegram Bridge":"Telegram most",
-  "LANA Hermes Telegram Lane":"LANA Hermes Telegram lane",
+  "LANA Hermes Telegram Lane":"LANA Hermes · Telegram",
 };
 function serviceDisplayName(name){return SERVICE_LABELS[name]||name;}
 function fmtDuration(s){if(s==null)return "–";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;}
-function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE):"";}
+function fmtTime(u){return u?localWhen(u):"";}
 function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
@@ -834,13 +967,13 @@ function fmtIn(sec){
 function fmtShort(sec){
   sec=Math.max(0,Math.round(sec));
   const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
-  return d?`${d}d${h}h`:h?`${h}h${String(m).padStart(2,"0")}`:`${Math.max(1,m)}m`;
+  return fmtIn(sec);
 }
 function untilTxt(ts){ const s=ts-nowSec(); return s<=0?"probíhá reset…":"za "+fmtIn(s); }
 function tickResets(){
   document.querySelectorAll("[data-reset-at]").forEach(el=>{
     const ts=Number(el.dataset.resetAt); if(!isFinite(ts)) return;
-    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":fmtShort(ts-nowSec()));
+    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":"za "+fmtShort(ts-nowSec()));
     else el.textContent=(el.dataset.resetLabel?`reset ${el.dataset.resetLabel} · `:"")+untilTxt(ts);
   });
 }
@@ -848,14 +981,14 @@ setInterval(tickResets, 30000);
 // Burn-rate forecast (server: agentsmon/quota.py) → short Czech phrase, "" when unknown.
 function fcClock(ts){
   const d=new Date(ts*1000), n=new Date(nowSec()*1000);
-  const hm=d.toLocaleTimeString(LOCALE,{hour:"2-digit",minute:"2-digit"});
-  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{day:"numeric",month:"numeric"})+" "+hm;
+  const hm=d.toLocaleTimeString(LOCALE,{timeZone:"Europe/Prague",hour:"2-digit",minute:"2-digit"});
+  return d.toDateString()===n.toDateString()?hm:d.toLocaleDateString(LOCALE,{timeZone:"Europe/Prague",day:"numeric",month:"numeric"})+" "+hm;
 }
 function fcText(f){
   if(!f) return "";
-  if(f.will_exhaust_before_reset&&f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)} (před resetem)`;
-  if(f.projected_at_reset!=null) return `při resetu ~${Math.round(Number(f.projected_at_reset))} %`;
-  if(f.exhaust_at) return `tempem vyčerpáno ~${fcClock(f.exhaust_at)}`;
+  if(f.will_exhaust_before_reset&&f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)} (před obnovou)`;
+  if(f.projected_at_reset!=null) return `Vystačí – zbude ~${fmtPct(Math.max(0,100-Number(f.projected_at_reset)))}`;
+  if(f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)}`;
   return "";
 }
 function initResetsPanel(){
@@ -870,27 +1003,9 @@ document.addEventListener("click",e=>{
   setTimeout(()=>{ try{ localStorage.setItem(collapseKey("resets"), d.open?"0":"1"); }catch(_){} },0);
 });
 function renderResets(list){
-  const box=document.getElementById("resets-panel"); if(!box) return;
-  const items=list||[]; box.hidden=!items.length;
-  if(items.length){
-    const n=items[0], ex=items.filter(e=>e.exhausted);
-    setHTML(box.querySelector(".resets-next"),`${esc(n.source)} · ${esc(n.label)} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
-    setHTML(box.querySelector(".resets-extra"),
-      (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
-      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`);
-  }
-  setHTML(box.querySelector(".resets-list"),items.map(e=>{
-    const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
-    const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
-    const fc=e.exhausted?"":fcText(e.forecast);
-    const warn=!!(fc&&e.forecast&&e.forecast.will_exhaust_before_reset);
-    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||""),fc].filter(Boolean).join(" · ");
-    return `<li class="reset-chip${e.exhausted?" exhausted":warn?" will-exhaust":""}" title="${esc(tip)}">`+
-      `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
-      `<span class="reset-what">${esc(e.source)} · ${esc(e.label)}</span>`+
-      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
-      (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
-  }).join(""));
+  const box=document.getElementById("hero-resets"), items=(list||[]).slice(0,3);
+  box.hidden=!items.length;
+  setHTML(box,`<h3>Nejbližší obnovy</h3><ol>${items.map(e=>`<li><span>${esc(czLabel(e.source))} <small>${esc(czLabel(e.label))}</small></span><b data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</b></li>`).join("")}</ol>`);
 }
 
 const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
@@ -905,9 +1020,9 @@ function timelineHtml(buckets, windowDays){
   }).join("");
   const start=(buckets&&buckets.length)?new Date(buckets[0].start*1000).toLocaleDateString(LOCALE):"";
   return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
-    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-[11px] text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
+    `<div class="flex items-center justify-between mb-2 gap-2 flex-wrap"><h3 class="text-xs font-semibold text-slate-500">Historie dostupnosti</h3><span class="text-xs text-slate-400">posledních ${esc(windowDays)} dní</span></div>`+
     `<div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti za posledních ${esc(windowDays)} dní">${bars}</div>`+
-    `<div class="flex items-center justify-between mt-2 text-[11px] text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
+    `<div class="flex items-center justify-between mt-2 text-xs text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
     `<div class="flex items-center gap-3 flex-wrap"><span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span></div><span>teď</span></div></div>`;
@@ -919,18 +1034,23 @@ function svcMetric(s){
   return {label:"Latence",value:fmtLat(s.latency_ms),sub:s.metric_sub||"kontrola zdraví"};
 }
 function metricTile(label,value,sub){
-  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-[11px] uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
-    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-[11px] text-slate-400">${esc(sub)}</p></div>`;
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3"><p class="text-xs uppercase tracking-wide text-slate-400">${esc(label)}</p>`+
+    `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-xs text-slate-400">${esc(sub)}</p></div>`;
 }
 // One compact list row per service: icon + name + state + latency; history & metric tiles behind a disclosure.
+function friendlyDetail(text){
+  const t=String(text||"");
+  if(/served=|lane_state=|cursor_json|--resume|[a-z_]+=(True|False)/.test(t)) return "";
+  return t.replace(/All checks OK/g,"Vše v pořádku").replace(/(\d+\/\d+) bridges running/g,"$1 most běží").replace(/no data yet/g,"Zatím bez dat");
+}
 function serviceItem(s, root=null){
   const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
-  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+(s.detail||"");
+  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+friendlyDetail(s.detail);
   const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
       `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
       `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
       `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span></div>`+
-    (note?`<p class="svc-note">${esc(note)}</p>`:"")+
+    (note?`<p class="svc-note">${esc(note)}</p>`:"")+(s.detail&&!friendlyDetail(s.detail)?detailsBlock(s.detail,dk+":tech"):"")+
     `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
       `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
       `${metricTile("Dostupnost",s.sla!=null?s.sla.toFixed(2)+" %":"–","za "+s.sla_window_days+" dní ("+(s.sla_samples||0)+" vzorků)")}`+
@@ -958,7 +1078,7 @@ function renderRows(root, rows, details=false){
   // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
   if(!rows.length) return "";
   return `<div class="svc-rows-wrap rounded-lg border border-slate-200 bg-white overflow-x-auto mb-2"><table class="w-full text-sm"><thead>`+
-    `<tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
+    `<tr class="text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200"><th class="text-left font-medium px-2 py-2">Kontrola</th>`+
     `<th class="rows-value-label text-left font-medium px-2 py-2">${details?"Detail":"Adresa"}</th><th class="text-left font-medium px-2 py-2">Latence</th>`+
     `<th class="text-left font-medium px-2 py-2">Běh</th><th class="text-left font-medium px-2 py-2">Stav</th></tr></thead><tbody class="svc-rows">`+
   rows.map(r=>{
@@ -1031,13 +1151,13 @@ function closeQuotaTips(except){
 function renderAgentGauge(b){
   const m=gaugeMetrics(b);
   const id="qtip-"+TIP_NS+"-"+(++tipSeq);
-  const short=m.unavail?"—":`${Math.round(m.remShow)}%`;
+  const short=m.unavail?"—":fmtPct(Math.round(m.remShow));
   return `<span class="quota-wrap">`+
     `<button type="button" class="quota-gauge" aria-expanded="false" aria-describedby="${id}" title="${esc(m.tip)}" data-quota-tip>`+
       `<span class="quota-name">${esc(b.label||"")}</span>`+
       `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
       `<span class="sr-only">${esc(m.aria)}</span>`+
-      `<span aria-hidden="true" class="text-[11px] text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
+      `<span aria-hidden="true" class="text-xs text-slate-500 font-semibold tabular-nums">${esc(short)}</span>`+
       (m.resetAt&&!m.unavail?`<span aria-hidden="true" class="quota-until" data-reset-at="${m.resetAt}" data-short="1">↻ ${esc(fmtShort(m.resetAt-nowSec()))}</span>`:"")+
     `</button>`+
     `<span id="${id}" role="tooltip" class="quota-tip">${esc(m.tip)}</span>`+
@@ -1143,8 +1263,9 @@ function fmtIsoText(t){
   });
 }
 function detailsBlock(text,key){
+  if(ROLE!=="admin") return "";
   const parts=fmtIsoText(text).split(/\s+·\s+/).map(s=>s.trim()).filter(Boolean);
-  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Technické detaily</summary>`+
     `<ul class="pod-body">${parts.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`;
 }
 document.addEventListener("toggle",e=>{
@@ -1183,21 +1304,19 @@ function renderAccountChip(a){
   const acc=a.quota_account||null;
   const row=acc?ACCTS[acc.table+"|"+acc.row]:null;
   const src=row||(allBars(a).length?a:null);
-  if(!src) return `<span class="text-slate-300 text-xs" title="Agent nemá přiřazený účet s kvótou">—</span>`;
+  if(!src) return "";
   const w=worstWindow(src), name=acc?acc.name:"kvóta";
   const used=w?Number(w.b.percent):null;
   const tone=used==null?"":used>=90?" err":used>=70?" warn":"";
-  const lab=w?String(w.b.label||winType(w.b,w.c)):"";
+  const lab=w?czLabel(w.b.label||winType(w.b,w.c)):"";
   const users=(acc&&acc.shared_with)||[];
   const shared=users.length>1?"Sdílený účet s: "+users.join(", "):(acc?"Účet používá jen tento agent":"");
   const lines=allBars(src).map(x=>`${x.b.label||winType(x.b,x.c)}: ${isUnavail(x.b)?"neznámé":"využito "+fmtPct(x.b.percent)}${x.b.reset_label?" · reset "+x.b.reset_label:""}`);
   const tip=[name,...lines,shared,acc?"Kliknutím přejdete na účet v sekci kvót.":""].filter(Boolean).join("\n");
   const resetAt=w&&Number(w.b.reset_at)>0?Number(w.b.reset_at):null;
   const aria=`${name}: nejvytíženější okno ${lab||"neznámé"}, využito ${used==null?"neznámé":fmtPct(used)}. ${shared}`;
-  const inner=`<span class="acct-name">${esc(name)}</span><span aria-hidden="true">▸</span>`+
-    `<span class="acct-win">${esc(lab)} ${used==null?"?":esc(fmtPct(used))}</span>`+
-    (used!=null&&used>=90?`<span aria-hidden="true">⚠</span>`:"")+
-    (resetAt?`<span aria-hidden="true" class="quota-until" data-reset-at="${resetAt}" data-short="1">↻ ${esc(fmtShort(resetAt-nowSec()))}</span>`:"");
+  const inner=`<span class="acct-name">${esc(name.replace(/ · agentops$/, ""))}</span>`+
+    `<span class="acct-win">${used==null?"bez dat":esc(fmtPct(used))}</span><span aria-hidden="true">→</span>`;
   return acc
     ?`<a class="acct-chip${tone}" href="#${esc(acc.anchor)}" data-acct="${esc(acc.anchor)}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</a>`
     :`<span class="acct-chip${tone}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</span>`;
@@ -1213,39 +1332,63 @@ function freshness(r){
     return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
   return {cls:"ok",txt:r.age==null?"aktuální":(r.age<60?"před chvílí":"před "+fmtDuration(r.age)),reason:""};
 }
+function formatLocalDate(ts){
+  const opts={timeZone:"Europe/Prague"}, d=new Date(Number(ts)*1000), today=new Date(nowSec()*1000);
+  const date=d.toLocaleDateString(LOCALE,opts), same=date===today.toLocaleDateString(LOCALE,opts);
+  const hm=d.toLocaleTimeString(LOCALE,{...opts,hour:"2-digit",minute:"2-digit"});
+  return same?"dnes "+hm:d.toLocaleDateString(LOCALE,{...opts,weekday:"short",day:"numeric",month:"numeric",...(d.getFullYear()!==today.getFullYear()?{year:"numeric"}:{})}).replace(",", "")+" "+hm;
+}
+function localWhen(ts){
+  return formatLocalDate(ts);
+}
+function czLabel(s){
+  return String(s||"").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"v ceně").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
+}
 function renderWindow(x){
-  const b=x.b, m=gaugeMetrics(b), typ=winType(b,x.c);
-  const lab=String(b.label||""), showLab=lab&&!sameAsType(lab,typ);
-  const fc=(m.unavail||m.used>=100)?"":fcText(b.forecast);
-  const warn=!!(fc&&b.forecast&&b.forecast.will_exhaust_before_reset);
-  const credit=(typ==="kredit"&&x.c&&x.c.text&&!/^ok$/i.test(x.c.text))?String(x.c.text):"";
-  const resetHtml=m.resetAt
-    ?`<span class="quota-reset" data-reset-at="${m.resetAt}" data-reset-label="${esc(m.resetLabel)}">${esc(m.resetTxt)}</span>`
-    :((b.reset_label||credit)?`<span class="quota-reset">${b.reset_label?(typ==="kredit"?"platí do ":"reset ")+esc(b.reset_label):""}${b.reset_label&&credit?" · ":""}${esc(credit)}</span>`:"");
-  return `<div class="qc-win" title="${esc(fmtIsoText(b.title||""))}">`+
-    `<span class="win-type">${esc(typ)}</span><span class="win-label">${showLab?esc(lab):""}</span>`+
-    `<span class="quota-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${m.unavail?0:Math.round(m.remShow)}" aria-valuetext="${esc(m.aria)}" aria-label="${esc(typ+" "+lab+": "+m.aria)}"><span class="quota-fill ${m.fillCls}" style="width:${m.remShow}%"></span></span>`+
-    `<span class="quota-pct">${esc(m.pctTxt)}</span>`+resetHtml+
-    (fc?`<span class="win-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+
-  `</div>`;
+  const b=x.b, m=gaugeMetrics(b), f=b.forecast||{};
+  const tone=m.unavail?"info":m.used>=100?"bad":f.will_exhaust_before_reset||m.used>=90?"warn":"ok";
+  const expiry=b.meta&&b.meta.expires_at;
+  const reset=m.unavail?"":m.resetAt?localWhen(m.resetAt):expiry?new Date(expiry).toLocaleDateString(LOCALE,{day:"numeric",month:"numeric",year:"numeric"}):fmtIsoText(b.reset_label||"");
+  const verdict=m.unavail?"Údaj není dostupný":m.used>=100?"Vyčerpáno"+(reset?" – obnova "+reset:""):
+    f.will_exhaust_before_reset&&f.exhaust_at?"Dojde v "+localWhen(f.exhaust_at).replace(/ (\d{2}:\d{2})$/, " kolem $1"):
+    f.projected_at_reset!=null?"Vystačí – zbude ~"+fmtPct(Math.max(0,100-Number(f.projected_at_reset))):"Předpověď zatím není dostupná";
+  return `<div class="limit-row ${tone}"><div class="limit-ring" role="img" aria-label="${esc(m.aria)}" style="--remaining:${m.remShow}%"><span>${m.unavail?"–":esc(fmtPct(Math.round(m.remShow)))}</span></div>`+
+    `<div class="limit-copy"><b>${esc(czLabel(b.label||winType(b,x.c)))}</b><p class="limit-reset">${reset?"↻ "+esc(reset):m.unavail?"Obnova není dostupná":"Obnova není určena"}</p><p class="verdict ${tone}">${esc(verdict)}</p></div></div>`;
+}
+function creditMeta(wins){
+  const m=Object.assign({},...wins.map(x=>x.b.meta||{}));
+  if(m.spent_usd==null) return "";
+  const num=v=>Number(v).toLocaleString(LOCALE,{maximumFractionDigits:1});
+  const expiry=typeof m.expires_at==="number"?m.expires_at:Date.parse(m.expires_at)/1000;
+  const remainingUsd=m.remaining_usd!=null?Number(m.remaining_usd):m.initial_usd!=null?Math.max(0,Number(m.initial_usd)-Number(m.spent_usd)):null;
+  const remainingCzk=m.remaining_czk!=null?m.remaining_czk:m.currency==="CZK"?m.remaining_credit:null;
+  const days=expiry>nowSec()?Math.ceil((expiry-nowSec())/86400):null;
+  const target=days&&remainingUsd!=null?remainingUsd/days:null;
+  return `<div class="credit-meta">`+
+    (remainingCzk!=null?`<p class="credit-remaining">zbývá ≈ <b>${esc(Math.round(remainingCzk).toLocaleString(LOCALE))} Kč</b></p>`:"")+
+    `<p>utraceno ≈ ${esc(num(m.spent_usd))} USD (odhad)</p>`+
+    `<p class="credit-pace">dnes ${m.today_usd!=null?esc(num(m.today_usd))+" USD":"bez údaje"} · cíl ≤ ${target!=null?esc(num(target))+" USD/den":"bez údaje"}</p>`+
+    (expiry?`<p>Platnost do ${esc(new Date(expiry*1000).toLocaleDateString(LOCALE,{timeZone:"Europe/Prague",day:"numeric",month:"numeric",year:"numeric"}))}</p>`:"")+`</div>`;
 }
 function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
 function renderQuotaCard(r,table){
   const f=freshness(r), wins=allBars(r);
-  const exh=wins.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const exh=wins.filter(x=>!x.b.parent&&!isUnavail(x.b)&&Number(x.b.percent)>=100);
+  const risk=wins.some(x=>!x.b.parent&&x.b.forecast&&x.b.forecast.will_exhaust_before_reset);
+  const plan=(String(r.status_detail||"").match(/(?:^| · )plán ([^·]+)/i)||[])[1]||r.label;
+  const status=exh.length?"Vyčerpáno":risk?"Dojde dřív":f.cls!=="ok"?f.txt:"V pořádku";
   const users=r.used_by||[];
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
   const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
   const acts=renderActions(r,table,{lock:false});
   tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
   return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
-    `<div class="qc-head"><span class="qc-name">${esc(r.name)}</span>`+
-    (r.label?`<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${VENDOR[r.vendor]||VENDOR.other}">${esc(r.label)}</span>`:"")+
-    `<span class="fresh ${f.cls}" title="${esc(f.reason||"stáří dat od poslední aktualizace poskytovatele")}">${esc(f.txt)}${f.reason?" · "+esc(f.reason):""}</span></div>`+
-    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>x.b.label||winType(x.b,x.c)).join(", "))}</p>`:"")+
+    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${esc(r.name.replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).map(n=>n[0]).join("").slice(0,2).toUpperCase())}</div><div class="provider-name"><span class="qc-name">${esc(/Vertex/i.test(r.name)?"Vertex AI · kredit 300 USD":czLabel(r.name))}</span><span class="plan-label">${esc(/Vertex/i.test(r.name)?"Zkušební kredit":czLabel(plan)||"Účet poskytovatele")}</span></div>`+
+    `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(risk?"Při současném tempu dojde před obnovou":f.reason)}">${esc(status)}</span></div>`+
+    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>czLabel(x.b.label||winType(x.b,x.c))).join(", "))}</p>`:"")+
     `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
-    `<div class="qc-wins">${wins.map(renderWindow).join("")}`+
-      textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
+    `<p class="quota-legend">zbývá · ↻ obnova</p><div class="qc-wins">${wins.filter(x=>!x.b.parent).map(x=>renderWindow(x)+wins.filter(y=>y.b.parent===x.b.label).map(y=>`<p class="sub-limit">z toho ${esc(czLabel(y.b.label))} ${esc(fmtPct(y.b.percent))}${y.b.cap!=null?" · strop "+esc(fmtPct(y.b.cap)):""}</p>`).join("")).join("")}${creditMeta(wins)}`+
+      textOnly.filter(c=>!creditMeta(wins)).map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(czLabel(c.text))}</div>`).join("")+`</div>`+
     (acts?`<div class="qc-actions">${acts}</div>`:"")+
     (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
 }
@@ -1358,27 +1501,29 @@ function renderAgents(root, agents, summary=null, columns=[]){
       workHtml=u?`<a class="work-link ${esc(w.state||"")}" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(wtip)}" aria-label="${esc(wtip)}">${inner}</a>`
         :`<span class="work-link ${esc(w.state||"")}" title="${esc(wtip)}">${inner}</span>`;
     }
-    const cls="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
+    const cls="border-b border-slate-100 last:border-0";
     const nameBg=NAME_BG[a.name_color];
-    const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
+    const nameInner=esc(a.name);
     const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
     const nameCell=(a.kind!=="daemon")
       ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (kliknutím zkopírujete)">${nameInner}</span>`
       : nameInner;
     const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Otevřít @${esc(a.telegram_bot)} v Telegramu" aria-label="Telegram @${esc(a.telegram_bot)}" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9" aria-hidden="true"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
-    const recovery=a.restart_warning?`<br><span class="text-[11px] text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
+    const recovery=a.restart_warning?`<br><span class="text-xs text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
     const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-[11px] text-amber-600">Neúplná data</span>':""}</td>`+
-      `<td class="px-2 py-1.5">${sid}</td>`+
-      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
-      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
-      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${esc(czLabel(a.label==="cursor_json"?"Cursor":a.label))}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
+
+      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"běží "+fmtDuration(a.age):""}</td>`+
+      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(friendlyDetail(statusTxt)|| (ok?"Běží":"Nečinný"))}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
+      (isAgents?"":columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join(""))+
       (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
     return {key:a.id||a.name, cls, html};
   });
   patchRows(tb, rows, "tr");
+  const labels=[...root.querySelectorAll("thead th")].map(e=>e.textContent);
+  tb.querySelectorAll("tr").forEach(tr=>[...tr.children].forEach((td,i)=>{const label=labels[i]||"";if(td.dataset.label!==label)td.dataset.label=label;}));
 }
 document.addEventListener("click",e=>{
   const btn=e.target.closest("[data-quota-tip]");
@@ -1445,7 +1590,7 @@ const Q_STATE={running:["▶","Běží"],queued:["◷","Ve frontě"],awaiting_pi
 const CI_ICON={success:["✓","CI úspěšné"],failure:["✕","CI selhalo"],pending:["…","CI probíhá"]};
 let QTAB=(()=>{ try{ const v=localStorage.getItem(Q_TAB_KEY); return Q_TABS.some(t=>t[0]===v)?v:"aktivni"; }catch(e){ return "aktivni"; } })();
 let QFILTER=null;   // "state:<s>" from a header counter; overrides the tab until cleared
-let QDATA=null;
+let QDATA=null, queueExpanded=false;
 function ghUrl(u){ return (typeof u==="string"&&/^https:\/\/github\.com\//.test(u))?u:null; }
 function ghLink(u,html,cls,label){
   const s=ghUrl(u);
@@ -1466,40 +1611,43 @@ function qMatch(it,view){
   if(view==="hotovo") return it.state==="done"&&!(Number(it.age_seconds)>86400);
   return true;
 }
+function workerLabel(name){
+  return ({cursor_json:"Cursor",claude_json:"Claude",codex_json:"Codex"})[name]||name;
+}
 function qItem(it){
   const st=Q_STATE[it.state]||["•",it.state];
   const label=it.state_label_cs||st[1];
   const t=it.task||null, pr=it.pr||null;
   const key="qi:"+(it.kind||"")+":"+(it.issue||(t&&t.id)||it.title||"");
   const num=it.issue?ghLink(it.url,`#${esc(it.issue)}`,"q-link",`${it.kind==="pr"?"PR":"Issue"} #${it.issue} na GitHubu`)
-    :`<span class="text-slate-400" title="${esc((t&&t.id)||"")}">—</span>`;
+    :"";
   const title=ghUrl(it.url)
     ?`<a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.title)}">${esc(it.title)}</a>`
     :`<span class="q-tt" title="${esc(it.title)}">${esc(it.title)}</span>`;
   const mm=it.mismatch?`<span class="q-mm" tabindex="0" title="${esc(it.mismatch)}" aria-label="Nesoulad: ${esc(it.mismatch)}"><span aria-hidden="true">⚠</span>nesoulad</span>`:"";
-  const who=[it.worker,it.profile].filter(Boolean).join(" · ");
+  const who=[workerLabel(it.worker),it.profile].filter(Boolean).join(" · ");
   let prHtml="";
   if(pr&&pr.number){
     const ci=CI_ICON[pr.ci];
     prHtml=ghLink(pr.url,`PR #${esc(pr.number)}`,"q-link",`PR #${pr.number}${pr.title?": "+pr.title:""}`)+
       (ci?`<span class="ci ${esc(pr.ci)}" role="img" title="${ci[1]}" aria-label="${ci[1]}">${ci[0]}</span>`:"")+
-      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Draft</span>`:"")+
+      (pr.draft?`<span class="q-draft" title="Rozpracovaný PR">Rozpracováno</span>`:"")+
       (pr.review==="APPROVED"?`<span class="ci success">schváleno</span>`:pr.review==="CHANGES_REQUESTED"?`<span class="ci failure">změny</span>`:"");
   }
   const tries=t&&(Number(t.attempts)||Number(t.max_retries))?`pokus ${Number(t.attempts)||0}${Number(t.max_retries)?"/"+Number(t.max_retries):""}`:"";
   const det=[];
-  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("lane "+t.lane); if(t.error) det.push("chyba: "+t.error); }
+  if(t){ det.push(`Úloha ${t.id||"?"} · stav ${t.status||"?"}`); if(t.lane) det.push("větev "+t.lane); if(t.error) det.push("chyba: "+t.error); }
   if(it.mismatch) det.push("⚠ "+it.mismatch);
   if((it.labels||[]).length) det.push("štítky: "+it.labels.join(", "));
   if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
-  const details=det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+  const details=ROLE==="admin"&&det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Technické detaily</summary>`+
     `<ul class="pod-body">${det.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`:"";
   return {key, cls:"q-item", html:
     `<span class="q-num">${num}</span>`+
     `<span class="q-title">${title}${mm}</span>`+
     `<span class="q-badge ${esc(it.state)}"><span aria-hidden="true">${st[0]}</span>${esc(label)}</span>`+
-    `<span class="q-who" title="${esc(who)}">${who?esc(who):"–"}</span>`+
-    `<span class="q-pr">${prHtml||'<span class="text-slate-300" aria-label="bez PR">–</span>'}</span>`+
+    `<span class="q-who" title="${esc(who)}">${who?esc(who):""}</span>`+
+    `<span class="q-pr">${prHtml||""}</span>`+
     `<span class="q-age" title="${esc(it.updated_at?"aktualizováno "+fmtTime(it.updated_at):"")}">${esc(fmtAgo(it.age_seconds))}</span>`+
     ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")};
 }
@@ -1531,11 +1679,14 @@ function renderQueue(qd){
   if(m.stale&&!qd.loading) parts.push("Zastaralá data fronty"+(m.last_success_at?` – poslední úspěšné načtení ${fmtAgo(nowSec()-Number(m.last_success_at))}`:""));
   if(errs.length) parts.push("Chyby zdrojů: "+errs.join(" · "));
   const note=q(root,".q-note"); note.hidden=!parts.length; note.textContent=parts.join(". ");
-  const view=QFILTER||QTAB, shown=items.filter(it=>qMatch(it,view));
+  const view=QFILTER||QTAB, matched=items.filter(it=>qMatch(it,view)), shown=queueExpanded?matched:matched.slice(0,4);
+  const more=q(root,".queue-more"); more.hidden=matched.length<=4; more.textContent=queueExpanded?"Zobrazit méně":`Zobrazit další (${matched.length-4})`;
+  more.onclick=()=>{queueExpanded=!queueExpanded;renderQueue(QDATA);};
   patchRows(q(root,".q-list"),(qd.loading&&!items.length)?[{key:"empty",cls:"q-empty",html:"načítání…"}]
     :shown.length?shown.map(qItem):[{key:"empty",cls:"q-empty",html:QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}],"li");
 }
 function setQueueView(tab,filter){
+  queueExpanded=false;
   if(tab){ QTAB=tab; try{ localStorage.setItem(Q_TAB_KEY,tab); }catch(_){} }
   QFILTER=filter||null; renderQueue(QDATA);
 }
@@ -1548,13 +1699,14 @@ document.addEventListener("click",e=>{
 });
 // ---- Vyžaduje pozornost + celkový stav (spočítáno na serveru: compute_attention) ----
 const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],info:["ℹ","Informace"]};
-let lastAttnCount=null;
+let lastAttnCount=null, attentionExpanded=false;
 function renderAttention(list,ov){
   const box=document.getElementById("attention"); if(!box) return;
-  const items=Array.isArray(list)?list:[], total=Math.max(items.length,Number(ov&&ov.total)||0);
+  const items=Array.isArray(list)?list:[], total=Number(ov&&ov.total)||items.length;
+  const countText=String(Number(ov&&ov.critical||0)+Number(ov&&ov.warning||0));
   box.hidden=!items.length;
   box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
-  document.getElementById("attn-h").textContent=`Vyžaduje pozornost (${total})`;
+  document.getElementById("attn-h").textContent="K řešení";
   setHTML(q(box,".attn-list"),items.map(a=>{
     const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
     let link="";
@@ -1565,22 +1717,32 @@ function renderAttention(list,ov){
     }else if(ghUrl(href)){
       link=`<a class="attn-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`;
     }
+    const cut=String(a.text_cs||"").indexOf(": ");
+    const title=a.title_cs||(cut>0?a.text_cs.slice(0,cut):a.text_cs);
+    const detail=a.detail_cs||(cut>0?a.text_cs.slice(cut+2):"");
     const x=a.action;
     const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
       row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
-    return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
-      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span>${esc(a.text_cs)}${cd}</span>${act}${link}</li>`;
+    return `<li class="attn-item ${esc(a.severity)}"${!attentionExpanded&&items.indexOf(a)>=6?" hidden":""}><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
+      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${link}</li>`;
   }).join(""));
-  const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
+  const more=q(box,".attn-more"); more.hidden=items.length<=6; more.textContent=attentionExpanded?"Zobrazit méně":`Zobrazit další (${items.length-6})`;
+  more.onclick=()=>{attentionExpanded=!attentionExpanded;renderAttention(list,ov);};
   const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
-  pill.className="ovr "+(ov?lv:"");
-  setHTML(pill,ov?`<span aria-hidden="true">${{ok:"✓",warning:"⚠",critical:"✕"}[lv]||"•"}</span>${esc(ov.text_cs||"")}`:"–");
-  const cnt=Number(ov&&ov.count)||0;
-  document.title=(cnt?`(${cnt}) `:"")+"Monitorování agentů";
-  if(lastAttnCount!==null&&cnt!==lastAttnCount)
-    document.getElementById("attn-live").textContent=cnt?`Vyžaduje pozornost: ${cnt} ${plural(cnt,"položka","položky","položek")}`:"Vše v provozu";
-  lastAttnCount=cnt;
+  pill.className="hero-title "+lv;
+  pill.textContent=ov?ov.text_cs:"Načítání…";
+  document.getElementById("overview-info").textContent=ov&&ov.info?`+ ${ov.info} ${plural(ov.info,"informace","informace","informací")}`:"";
+  document.getElementById("overview-summary").textContent=ov&&ov.summary_cs||"";
+  
+  const parts=[[Number(ov&&ov.critical)||0,"var(--bad)"],[Number(ov&&ov.warning)||0,"var(--warn)"]];
+  let offset=0;
+  const segments=Number(countText)?parts.map(([n,color])=>{const length=n/Number(countText)*100;const svg=`<circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-dasharray="${Math.max(0,length-1)} ${101-length}" stroke-dashoffset="${-offset}"/>`;offset+=length;return n?svg:"";}).join(""):`<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ok)" stroke-width="9"/>`;
+  setHTML(document.getElementById("status-ring"),`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${Number(countText)?esc(countText):"✓"}</b><span>${Number(countText)?"k řešení":"v pořádku"}</span></div>`);
+  document.title=(Number(countText)?`(${countText}) `:"")+"Agenti";
+  if(lastAttnCount!==null&&countText!==lastAttnCount)
+    document.getElementById("attn-live").textContent=total?`K řešení: ${countText}`:"Vše v provozu";
+  lastAttnCount=countText;
 }
 document.addEventListener("click",e=>{
   const a=e.target.closest("a[data-attn]"); if(!a||a.dataset.acct) return;   // quota links: data-acct handler
@@ -1636,7 +1798,8 @@ async function refresh(){
       box.textContent=p.name+": "+p.detail; errors.appendChild(box);
     });
     if(sectionChanged("services",d.services)) renderServices(d.services||[]);
-    document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${d.core.state})`;
+    lastUpdated=Date.now(); if(sectionChanged("overview",[d.agents,d.agent_tables,d.services,d.queue])) renderOverviewChips(d);
+    document.getElementById("footer").textContent="aktualizováno "+new Date().toLocaleTimeString(LOCALE)+(paused?" · pozastaveno":" · automatická obnova")+` · jádro v${d.core.version} (${{clean:"beze změn",modified:"upraveno",unknown:"neznámý stav"}[d.core.state]||"neznámý stav"})`;
   }catch(e){document.getElementById("footer").textContent="spojení ztraceno…";}
 }
 function copyText(text){
@@ -1690,33 +1853,29 @@ document.addEventListener("click", async e=>{
 });
 function schedulePoll(){
   clearInterval(pollTimer);
-  if(!paused) pollTimer=setInterval(refresh, POLL*1000);
+  if(!paused&&document.visibilityState!=="hidden") pollTimer=setInterval(refresh, POLL*1000);
 }
 document.getElementById("btn-refresh").addEventListener("click",()=>refresh());
 document.getElementById("btn-pause").addEventListener("click",ev=>{
   paused=!paused;
   ev.currentTarget.setAttribute("aria-pressed", paused?"true":"false");
-  ev.currentTarget.textContent=paused?"Obnovu spustit":"Pozastavit obnovu";
+  ev.currentTarget.textContent=paused?"▷":"Ⅱ";
+  ev.currentTarget.setAttribute("aria-label",paused?"Spustit obnovu":"Pozastavit obnovu");
   schedulePoll();
   showToast(paused?"Automatická obnova pozastavena":"Automatická obnova běží");
-  refresh();
+  if(!paused) refresh();
+  updateAge();
 });
+document.addEventListener("visibilitychange",()=>{schedulePoll();if(document.visibilityState==="visible"&&!paused) refresh();updateAge();});
 initResetsPanel(); refresh(); schedulePoll();
 </script></body></html>"""
 
 
 PAGE=PAGE.replace('AGENT_TABLES_MAIN',
-    AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
-        .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
+    QUEUE_SECTION+AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
+        .replace('NOTE','')
         .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
-    QUEUE_SECTION+'<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
-    '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
-    '<details class="resets-details">'
-    '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
-    '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
-    '<span class="resets-extra text-xs"></span></summary>'
-    '<p class="text-[11px] text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
-    '<ul class="resets-list"></ul></details></section>'
+    '<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
     '<div id="plugin-tables"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
@@ -2020,7 +2179,7 @@ SERVICE_LABELS_CS = {
     "Multi-Agent System Availability": "Dostupnost multiagentního systému",
     "Multi-agent system availability": "Dostupnost multiagentního systému",
     "Telegram Bridge": "Telegram most",
-    "LANA Hermes Telegram Lane": "LANA Hermes Telegram lane",
+    "LANA Hermes Telegram Lane": "LANA Hermes · Telegram",
 }
 _STOPPED = ("Stopped (manual)", "Zastaveno (ručně)")
 
@@ -2045,6 +2204,47 @@ def _bar_exhausted(b: dict) -> bool:
     rem, used = b.get("remaining"), b.get("percent")
     return (state in ("VYČERPÁNO", "EXHAUSTED") or (type(rem) in (int, float) and rem <= 0)
             or (type(used) in (int, float) and used >= 100))
+
+
+LOCAL_TZ = "Europe/Prague"
+_CZ_DAYS = ("po", "út", "st", "čt", "pá", "so", "ne")
+#: Provider window labels → Czech (the UI never shows "week"/"Included"/ISO UTC).
+_CZ_LABELS = {"7d": "týden", "5h": "5 h", "Included": "v ceně", "Actions min": "Minuty Actions",
+              "GCP Bonus": "Kredit GCP"}
+
+
+def cz_label(label) -> str:
+    """'Claude week' → 'Claude týden', '7d' → 'týden', 'Included' → 'v ceně'."""
+    text = str(label or "").strip()
+    if text in _CZ_LABELS:
+        return _CZ_LABELS[text]
+    text = re.sub(r"\bweek\b", "týden", text)
+    return re.sub(r"(?<=\s)5h\b", "5 h", text)
+
+
+def cz_when(ts, now: float | None = None) -> str:
+    """Local (Europe/Prague) moment: today → 'dnes 10:45', tomorrow → 'zítra 07:02',
+    otherwise 'pá 6. 11. 16:11' (year only when it differs). Empty string for no timestamp."""
+    if type(ts) not in (int, float):
+        return ""
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(LOCAL_TZ)
+    now = time.time() if now is None else now
+    d, today = datetime.fromtimestamp(ts, tz), datetime.fromtimestamp(now, tz).date()
+    hm = d.strftime("%H:%M")
+    delta = (d.date() - today).days
+    if delta == 0:
+        return f"dnes {hm}"
+    if delta == 1:
+        return f"zítra {hm}"
+    year = f"{d.year}" if d.year != today.year else ""
+    return f"{_CZ_DAYS[d.weekday()]} {d.day}. {d.month}. {year + ' ' if year else ''}{hm}"
+
+
+def _short_when(ts, now: float) -> str:
+    """'10:14' for today, otherwise the full cz_when form."""
+    w = cz_when(ts, now)
+    return w[5:] if w.startswith("dnes ") else w
 
 
 def _gh(url) -> str | None:
@@ -2095,12 +2295,12 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                        if _bar_exhausted(b)]
                 if not exh:
                     continue
-                labels = ", ".join(dict.fromkeys(str(b.get("label") or "okno") for b in exh))
+                labels = ", ".join(dict.fromkeys(cz_label(b.get("label") or "okno") for b in exh))
                 resets = [b.get("reset_at") for b in exh if type(b.get("reset_at")) is int and b["reset_at"] > now]
-                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label")]
+                when = [str(b.get("reset_label")) for b in exh if b.get("reset_label") and b.get("reset_label") != "—"]
                 text = f"{r.get('name') or r.get('id')}: vyčerpáno {labels}"
-                if when and resets:
-                    text += f" – reset {when[0]}"
+                if resets:
+                    text += f" – obnova {cz_when(min(resets), now)}"
                 elif when:                      # no timestamp, only a period ("měsíc")
                     text += f" ({when[0]})"
                 act = next((x for x in r.get("row_actions") or [] if x.get("id") == "redeem_reset"), None)
@@ -2109,7 +2309,18 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                            "label": act.get("label") or "Uplatnit reset", "icon": act.get("icon") or "reset",
                            "confirm": act.get("confirm") or ""} if act else None)
                 add("warning", text, "#" + r["anchor"] if r.get("anchor") else "#plugin-tables", action,
-                    reset_at=min(resets) if resets else None)
+                    reset_at=min(resets) if resets else None, kind="exhausted")
+            for r in t.get("rows") or []:
+                # A scoped sub-limit (Fable inside the Claude week) only matters at its own cap.
+                for c in (r.get("cells") or {}).values():
+                    for b in (c or {}).get("bars") or []:
+                        cap, used = b.get("cap"), b.get("percent")
+                        if (type(cap) in (int, float) and type(used) in (int, float) and used >= cap
+                                and not _bar_exhausted(b)):
+                            add("warning", f"{r.get('name') or r.get('id')}: {cz_label(b.get('label'))} dosáhl stropu "
+                                f"{_cz_pct(cap)}", "#" + r["anchor"] if r.get("anchor") else "#plugin-tables",
+                                kind="cap")
+        _forecast_attention(data, now, add)
         for p in data.get("plugin_errors") or []:
             add("warning", f"Plugin {p.get('name')}: {str(p.get('detail') or 'chyba')[:140]}", "#plugin-errors")
         qd = data.get("queue") or {}
@@ -2158,15 +2369,76 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     except Exception as exc:                      # the panel must never break /api/state
         add("warning", f"Výpočet upozornění selhal: {type(exc).__name__}", None)
     out.sort(key=lambda x: _SEV_ORDER.get(x["severity"], 9))       # stable: keeps source order
-    count = sum(1 for x in out if x["severity"] in ("critical", "warning"))
-    if any(x["severity"] == "critical" for x in out):
-        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count})"}
-    elif count:
-        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count})"}
-    else:
-        overall = {"level": "ok", "text_cs": "Vše v provozu"}
-    overall.update(count=count, total=len(out))
-    return out[:ATTENTION_MAX], overall
+    crit = sum(1 for x in out if x["severity"] == "critical")
+    warn = sum(1 for x in out if x["severity"] == "warning")
+    info = sum(1 for x in out if x["severity"] == "info")
+    count = crit + warn
+    count_cs = str(count)
+    heading = " · ".join(part for part in (
+        f"{crit} {_cz_plural(crit, 'kritický problém', 'kritické', 'kritických')}" if crit else "",
+        f"{warn} upozornění" if warn else "") if part) or "Vše v provozu"
+    overall: dict = {"level": "critical" if crit else "warning" if warn else "ok", "text_cs": heading}
+    overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
+                   summary_cs=_summary_sentence(out, crit, warn, info))
+    return out, overall
+
+
+def _cz_pct(v) -> str:
+    """One percent format everywhere: '97 %', '6,5 %'."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "?"
+    return (f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}".replace(".", ",")) + "\u00a0%"
+
+
+def _summary_sentence(items: list, crit: int, warn: int, info: int) -> str:
+    """One sentence for the header: what is wrong, worst first."""
+    if not (crit or warn):
+        return "Vše běží, nic nečeká na tebe." if not info else f"Vše běží; {info} {_cz_plural(info, 'informace', 'informace', 'informací')} k přečtení."
+    bits = []
+    for kind in ("exhausted", "forecast"):
+        item = next((i for i in items if i.get("kind") == kind), None)
+        if item:
+            text = item["text_cs"]
+            if kind == "exhausted":
+                name, _, detail = text.partition(":")
+                reset = detail.partition("obnova ")[2]
+                bits.append(name + " vyčerpán" + (" do " + reset if reset else ""))
+            else:
+                bits.append(text.split(" dojde")[0] + " dojde před obnovou")
+    failed = next((i for i in items if "úloha selhala" in i["text_cs"] or "úlohy selhaly" in i["text_cs"]), None)
+    if failed:
+        bits.append(failed["text_cs"].replace("Fronta: ", "").split(" (")[0])
+    if not bits:
+        bits = [i["text_cs"] for i in items if i["severity"] != "info"][:2]
+    return "; ".join(bits[:3]) + "."
+
+
+def _forecast_attention(data: dict, now: float, add) -> None:
+    """Burn-rate forecasts that run out BEFORE the window resets are 'at risk' items:
+    'Codex · agentops 5h dojde ~10:14, obnova 10:45'. Sub-limits (with their own cap) and
+    windows already exhausted are skipped; horizon ≤ 7 days."""
+    subs = {(str(r.get("name") or "").strip(), b.get("label"))
+            for t in data.get("agent_tables") or [] for r in t.get("rows") or []
+            for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
+            if isinstance(b, dict) and b.get("cap") is not None}
+    anchors = {str(r.get("name") or "").strip(): r.get("anchor")
+               for t in data.get("agent_tables") or [] for r in t.get("rows") or []}
+    for f in data.get("forecasts") or []:
+        if not isinstance(f, dict) or not f.get("will_exhaust_before_reset") or f.get("exhausted"):
+            continue
+        ex, rs = f.get("exhaust_at"), f.get("reset_at")
+        if type(ex) not in (int, float) or ex <= now or ex - now > 7 * 86400 or (f.get("source"), f.get("label")) in subs:
+            continue
+        if type(rs) in (int, float) and ex >= rs:
+            continue
+        text = f"{f.get('source')} {cz_label(f.get('label'))} dojde ~{_short_when(ex, now)}"
+        if type(rs) in (int, float):
+            text += f", obnova {_short_when(rs, now)}"
+        anchor = anchors.get(str(f.get("source") or "").strip())
+        add("warning", text, "#" + anchor if anchor else "#kvoty", kind="forecast",
+            exhaust_at=int(ex), reset_at=int(rs) if type(rs) in (int, float) else None)
 
 
 # ---- "pracuje na #N": which queue item each agent is working on (deterministic, never guessed) ----

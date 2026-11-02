@@ -70,8 +70,8 @@ class DashboardCzechPage(unittest.TestCase):
         page = dashboard.PAGE
         self.assertIn('lang="cs"', page)
         self.assertIn("Persistentní agenti", page)
-        self.assertIn("kvót poskytovatelů", page)
-        self.assertIn("Monitorování agentů", page)
+        self.assertIn("zbývá · ↻ obnova", page)
+        self.assertIn("<h1>Agenti</h1>", page)
         self.assertIn("Pozastavit obnovu", page)
         self.assertIn("renderQuotaBar", page)
         self.assertIn('role="progressbar"', page)

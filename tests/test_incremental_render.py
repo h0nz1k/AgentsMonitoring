@@ -55,7 +55,7 @@ const w=dom.window,d=w.document,sleep=ms=>new Promise(r=>setTimeout(r,ms)),o={};
   o.waiting=row('Claude').querySelector('.st-wait').textContent;
   o.services=d.querySelectorAll('#services .svc-item').length;
   const r0=row('Cursor'), b=r0.querySelector('[data-act="restart"]'); b.focus();
-  let muts=0; new w.MutationObserver(l=>{muts+=l.filter(m=>!m.target.closest||!m.target.closest('#footer')).length;})
+  let muts=0; new w.MutationObserver(l=>{muts+=l.filter(m=>!m.target.closest||!m.target.closest('#footer,.updated')).length;})
     .observe(d.getElementById('app'),{childList:true,subtree:true,attributes:true,characterData:true});
   await w.refresh(); await sleep(20);
   o.identicalMutations=muts; o.sameFocus=d.activeElement===b;
@@ -72,8 +72,8 @@ class PageMarkup(unittest.TestCase):
         p = dashboard.PAGE
         self.assertIn("@media (min-width:1280px)", p)
         self.assertLess(p.index('class="col-main"'), p.index('class="col-side"'))
-        self.assertLess(p.index('id="agenti"'), p.index('class="col-side"'))
-        self.assertLess(p.index('class="col-side"'), p.index('id="resets-panel"'))
+        self.assertLess(p.index('class="col-side"'), p.index('id="agenti"'))
+        self.assertLess(p.index('id="hero-resets"'), p.index('class="col-side"'))
         self.assertLess(p.index('id="plugin-tables"'), p.index('id="services"'))
         for needle in ("function patchRows(parent,rows,tag)", "function sectionChanged(k,v)",
                        "function setHTML(el,html)", "restoreUi(", "Historie a metriky", "work-link",

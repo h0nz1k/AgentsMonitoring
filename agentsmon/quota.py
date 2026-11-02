@@ -115,7 +115,13 @@ def series(tables: list, agents: list) -> list:
                 if (not primary and key in keys) or (name, label) in idents:
                     continue
                 idents.add((name, label)); keys.add(key)
-                out.append({"source": name, "label": str(label), "used": used, "reset_at": reset_at})
+                it = {"source": name, "label": str(label), "used": used, "reset_at": reset_at}
+                cap = _num(b.get("cap"))                  # scoped sub-limit (e.g. Fable in Claude week)
+                if cap is not None and 0 < cap <= 100:
+                    it["cap"] = cap
+                if isinstance(b.get("parent"), str) and b["parent"]:
+                    it["parent"] = b["parent"]
+                out.append(it)
     return out
 
 

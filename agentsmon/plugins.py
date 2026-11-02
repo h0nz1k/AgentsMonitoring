@@ -54,7 +54,7 @@ def cell(value):
     if 'bars' in value:
         result['bars']=[]
         for b in objects(value['bars'],4):
-            if set(b)-{'label','percent','title','remaining','reset_label','reset_at','state'}: raise ValueError('Invalid bar')
+            if set(b)-{'label','percent','title','remaining','reset_label','reset_at','state','parent','cap','meta'}: raise ValueError('Invalid bar')
             pct=number(b['percent'])
             if pct>100: raise ValueError('Invalid percent')
             bar={'label':text(b['label'],30),'percent':pct,'title':text(b.get('title',''))}
@@ -82,8 +82,39 @@ def cell(value):
                     # Allow Czech UI states through as free text (bounded).
                     pass
                 bar['state']=state
+            # Optional sub-limit metadata (core feature 'bar_meta'): a scoped limit that lives INSIDE
+            # another window of the same row (``parent`` = that bar's label) with its own ``cap`` %.
+            if b.get('parent') is not None:
+                bar['parent']=text(str(b['parent']),30)
+            if b.get('cap') is not None:
+                cap=number(b['cap'])
+                if not 0<cap<=100: raise ValueError('Invalid cap')
+                bar['cap']=cap
+            if b.get('meta') is not None:
+                bar['meta']=bar_meta(b['meta'])
             result['bars'].append(bar)
     return result
+
+
+#: Optional capabilities announced to plugins in ``context['features']`` — a plugin may only emit
+#: the matching extra fields when the core lists them (older cores reject unknown bar fields).
+FEATURES=('bar_meta',)
+
+
+def bar_meta(value):
+    """Small flat dict of numbers / short texts (e.g. credit: spent_usd, remaining, expires_at)."""
+    if not isinstance(value,dict) or len(value)>16: raise ValueError('Invalid meta')
+    out={}
+    for k,v in value.items():
+        key=ident(k)
+        if isinstance(v,bool): out[key]=v
+        elif type(v) in (int,float):
+            if not math.isfinite(v): raise ValueError('Invalid meta')
+            out[key]=v
+        elif isinstance(v,str): out[key]=text(v,80)
+        elif v is None: out[key]=None
+        else: raise ValueError('Invalid meta')
+    return out
 
 
 def row(raw, plugin):
@@ -270,7 +301,7 @@ class Manager:
         self._action_locks={p.id:threading.Lock() for p in self.plugins}
 
     def collect(self,agents):
-        context={'api_version':1,'agents':[{k:v for k,v in a.items() if k in PUBLIC_FIELDS} for a in agents]}
+        context={'api_version':1,'features':list(FEATURES),'agents':[{k:v for k,v in a.items() if k in PUBLIC_FIELDS} for a in agents]}
         result={k:[] for k in ('tables','columns','patches','hidden_sessions','hidden_services','errors','plugins')}
         def one(plugin):
             try: return validate_result(plugin,invoke(plugin,'collect',context)),''
