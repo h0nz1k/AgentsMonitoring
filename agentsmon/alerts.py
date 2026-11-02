@@ -385,11 +385,10 @@ def evaluate(s: dict, items: list, forecasts: list, now: float) -> list:
                 pend = c.execute("SELECT due FROM alert_buffer WHERE key=? AND kind IN ('threshold','exhausted')",
                                  (key,)).fetchone()
                 if pend is not None:                # an undelivered higher reading is stale now →
-                    if crossed > 0:                 # deliver the current one in the same slot instead
-                        _buffer(c, {"kind": "threshold", "key": key, "critical": crossed >= critical_at,
-                                    "text": line_threshold(it, now, tz)}, now, int(pend[0] or 0))
-                    else:
-                        c.execute("DELETE FROM alert_buffer WHERE key=? AND kind IN ('threshold','exhausted')", (key,))
+                    # deliver the current one in the same slot instead (crossed > 0 here: a drop
+                    # below the lowest threshold is handled by the 'back' branch above)
+                    _buffer(c, {"kind": "threshold", "key": key, "critical": crossed >= critical_at,
+                                "text": line_threshold(it, now, tz)}, now, int(pend[0] or 0))
             if (ev is None and will and s.get("notify_on_forecast_exhaust", True)
                     and not _same_window(st["forecast_for"] or None, reset_at)):
                 ev = {"kind": "forecast", "key": key, "critical": False, "text": line_forecast(it, f, now, tz)}

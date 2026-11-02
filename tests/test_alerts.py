@@ -459,6 +459,17 @@ class Redesign003Rules(Base):
         self.run_eval([item(30)], now=NOW + 60 + 4000)
         self.assertEqual(body(self.sent[2]), ["Codex · agentops 7d (využito 30 %)"])
 
+    def test_full_recovery_while_deferred_cancels_pending_alarm(self):
+        self.run_eval([item(50)])
+        self.run_eval([item(81)], now=NOW + 60)
+        self.run_eval([item(96)], now=NOW + 120)            # deferred by the per-series rate limit
+        self.run_eval([item(30)], now=NOW + 300)            # back below 80 before the slot → cancel
+        self.run_eval([item(30)], now=NOW + 60 + 4000)
+        self.assertEqual(len(self.sent), 1)                 # neither the stale 96 % nor 'back'
+        self.assertNotIn("96 %", "".join(self.sent))
+        with alerts._db() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM alert_buffer").fetchone()[0], 0)
+
     def test_exhausted_fires_after_95(self):
         self.run_eval([item(50)])
         self.run_eval([item(96)], now=NOW + 60)
