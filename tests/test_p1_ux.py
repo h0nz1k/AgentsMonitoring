@@ -134,7 +134,7 @@ class QuotaPageRendering(unittest.TestCase):
 
     def test_long_detail_is_disclosed_and_iso_times_are_localised(self):
         page = dashboard.PAGE
-        self.assertIn("<summary>Podrobnosti</summary>", page)
+        self.assertIn("<summary>Technické detaily</summary>", page)
         self.assertIn("function fmtIsoText(t)", page)
         self.assertIn("OPEN_DETAILS", page)
 
@@ -142,11 +142,10 @@ class QuotaPageRendering(unittest.TestCase):
 class CompactResets(unittest.TestCase):
     def test_summary_line_and_collapsible_list(self):
         page = dashboard.PAGE
-        self.assertIn('<details class="resets-details">', page)
-        self.assertIn("Nejbližší reset:", page)
-        self.assertIn('matchMedia("(max-width:639px)")', page)
-        self.assertIn('collapseKey("resets")', page)
-        self.assertIn('class="reset-chip${e.exhausted?" exhausted"', page)
+        self.assertIn('id="hero-resets"', page)
+        self.assertIn("Nejbližší obnovy", page)
+        self.assertNotIn('id="resets-panel"', page)
+        self.assertIn('(list||[]).slice(0,3)', page)
         self.assertIn("data-reset-at", page)
 
 

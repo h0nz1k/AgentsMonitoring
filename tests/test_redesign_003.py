@@ -24,7 +24,7 @@ class CzFormat(unittest.TestCase):
     def test_labels_have_no_english_week(self):
         self.assertEqual(dashboard.cz_label("Claude week"), "Claude týden")
         self.assertEqual(dashboard.cz_label("7d"), "týden")
-        self.assertEqual(dashboard.cz_label("Included"), "V předplatném")
+        self.assertEqual(dashboard.cz_label("Included"), "v ceně")
         self.assertEqual(dashboard.cz_label("Claude/GPT 5h"), "Claude/GPT 5 h")
 
     def test_one_percent_format(self):
@@ -83,14 +83,14 @@ class SingleCount(unittest.TestCase):
                   {"name": "S", "alive": False, "status": "Stopped (manual)"}]
         att, ov = dashboard.compute_attention({"agents": agents}, now=NOW)
         self.assertEqual((ov["critical"], ov["warning"], ov["info"]), (1, 1, 1))
-        self.assertEqual(ov["count_cs"], "2 + 1 info")
-        self.assertEqual(ov["text_cs"], "Kritický stav (2 + 1 info)")
-        self.assertTrue(ov["summary_cs"].startswith("1 kritický problém a 1 věc vyžaduje pozornost"))
+        self.assertEqual(ov["count_cs"], "2")
+        self.assertEqual(ov["text_cs"], "1 kritický problém · 1 upozornění")
+        self.assertNotIn("nejdřív:", ov["summary_cs"])
 
     def test_info_only_is_ok(self):
         att, ov = dashboard.compute_attention({"agents": [{"name": "S", "alive": False,
                                                             "status": "Stopped (manual)"}]}, now=NOW)
-        self.assertEqual((ov["level"], ov["text_cs"]), ("ok", "Vše v provozu (1 info)"))
+        self.assertEqual((ov["level"], ov["text_cs"]), ("ok", "Vše v provozu"))
 
 
 class BarMeta(unittest.TestCase):

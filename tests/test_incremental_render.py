@@ -73,7 +73,7 @@ class PageMarkup(unittest.TestCase):
         self.assertIn("@media (min-width:1280px)", p)
         self.assertLess(p.index('class="col-main"'), p.index('class="col-side"'))
         self.assertLess(p.index('class="col-side"'), p.index('id="agenti"'))
-        self.assertLess(p.index('id="resets-panel"'), p.index('class="col-side"'))
+        self.assertLess(p.index('id="hero-resets"'), p.index('class="col-side"'))
         self.assertLess(p.index('id="plugin-tables"'), p.index('id="services"'))
         for needle in ("function patchRows(parent,rows,tag)", "function sectionChanged(k,v)",
                        "function setHTML(el,html)", "restoreUi(", "Historie a metriky", "work-link",

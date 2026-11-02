@@ -187,7 +187,7 @@ class ForecastUi(unittest.TestCase):
         self.assertIn("Dojde ~", page)
         self.assertIn("(před obnovou)", page)
         self.assertIn("Vystačí – zbude ~", page)
-        self.assertIn('class="reset-fc', page)           # chip line in 'Nejbližší resety kvót'
+        self.assertIn('id="hero-resets"', page)           # chip line in 'Nejbližší resety kvót'
         self.assertIn("fcText(b.forecast)", page)         # bar tooltip
 
 

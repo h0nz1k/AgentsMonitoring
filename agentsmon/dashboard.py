@@ -492,7 +492,7 @@ QUOTA_SECTION = r"""<template id="quota-table-tpl">
 </template>"""
 
 
-QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul></div></div></section>'
+QUEUE_SECTION = '<section id="fronta" class="mb-6 queue-section" data-svc="fronta" hidden aria-label="Fronta práce"><div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200" role="button" tabindex="0" aria-expanded="true"><span class="svc-dot h-3 w-3 rounded-full bg-slate-300 shrink-0" aria-hidden="true"></span><h2 class="text-base font-semibold">Fronta práce</h2><span class="agents-count ml-auto text-sm font-medium text-slate-400">načítání…</span><span class="svc-chev text-slate-400 text-xs ml-2 select-none" title="sbalit / rozbalit" aria-hidden="true">▾</span></div><div class="svc-body"><div class="q-bar"><div class="q-counters flex flex-wrap items-center gap-1" role="group" aria-label="Filtr podle stavu"></div><a class="q-gh q-link" hidden target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="q-tabs" role="tablist" aria-label="Pohled na frontu práce"></div><p class="q-note" role="status" hidden></p><div id="q-panel" role="tabpanel" aria-label="Položky fronty práce"><ul class="q-list" role="list"><li class="q-empty">načítání…</li></ul><button type="button" class="queue-more" hidden></button></div></div></section>'
 
 
 PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
@@ -844,6 +844,19 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 
 .quota-cards{align-items:start}
 :root[data-theme] .quota-until,:root[data-theme] .sid-btn.sid-muted,:root[data-theme] .q-tab,:root[data-theme] .q-draft{color:var(--muted)}
+
+/* Round 2: balanced columns, one count model and compact operational rows. */
+.overview{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.overview-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;gap:8px}.overview-chip{gap:8px;line-height:1.5;padding:10px;align-items:flex-start}.status-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:currentColor;margin-top:6px}.overview-info{color:var(--muted);font-size:12px;margin:8px 0 0 112px}.ring-center b{font-size:32px!important}.hero-title{font-size:22px}.hero-copy p{line-height:1.6}.hero-copy{flex:1}#hero-resets{border-top:1px solid var(--line);padding-top:12px}#hero-resets h3{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px}#hero-resets li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:12px}#hero-resets small{display:block;color:var(--muted);font-size:12px}#hero-resets b{font-weight:500;white-space:nowrap;color:var(--info)}
+.quota-cards{align-items:stretch}.quota-card{height:100%}.provider-status{white-space:nowrap;max-width:none;flex-shrink:0}.qc-name{text-wrap:initial}.plan-label{margin-top:2px}.qc-actions{margin-top:auto}.qc-note{font-size:12px;color:var(--muted);border:0;background:transparent}.qc-note summary{color:var(--muted)!important}.pod{font-size:12px}.pod-body{overflow-wrap:anywhere}.q-tabs{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;gap:4px;padding:4px;background:var(--track);border-radius:12px}.q-tab{white-space:nowrap;flex:0 0 auto;border:0;border-radius:8px;padding:8px 10px}.q-tab[aria-selected="true"]{background:var(--card);color:var(--tx)}.q-title a,.q-title .q-tt{display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.5;min-height:0}.q-num:empty,.q-pr:empty,.q-who:empty{display:none}.q-title{flex:1 1 calc(100% - 64px)}.q-extra .pod{width:100%}.q-counters{gap:2px}.q-sep{display:none}.q-item{gap:8px 12px}.q-badge{white-space:nowrap}
+.agent-rows tr{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px!important}.agent-rows td{padding:0!important;min-width:0;max-width:100%}.agent-rows td:first-child{font-size:14px}.agent-rows td:nth-child(2){text-align:right}.agent-rows td:nth-child(3){grid-column:1;font-size:12px}.agent-rows td:nth-child(4){grid-column:1}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;justify-self:end;align-self:center}.agent-rows td:last-child{grid-column:1 / -1;justify-self:end}.agent-rows td:empty{display:none}.agent-rows td::before{display:none!important}.agent-rows .agent-name{min-height:44px}.agent-rows .acct-chip{font-size:12px;max-width:190px}.agents-note:empty{display:none}.st-wait{background:transparent!important;color:var(--warn)!important}.svc-nm{font-size:14px}.svc-row{gap:8px}.attn-more{padding:8px 12px;border:1px solid var(--line);border-radius:10px}.attn-item[hidden]{display:none}.attn-list{grid-template-columns:1fr}.attn-text{min-width:150px}.attn-link{margin-left:40px}.layout{gap:24px}.col-side{display:flex;flex-direction:column}.col-side #fronta{order:0}.col-side #agenti{order:1}.col-side #plugin-agent-tables{order:2}.col-side #services{order:3}
+.credit-remaining{font-size:16px;color:var(--tx);margin-bottom:6px}.credit-pace{display:block;margin:10px 0}.qc-note summary{font-weight:400}.quota-card .pod{margin-top:auto}
+@media(min-width:1100px){.layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:28px}.overview{padding:20px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}.overview-chips{grid-column:1/-1}.overview-info{margin-left:124px}.status-ring{flex-basis:108px;height:108px}.hero-title{font-size:20px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-top{align-items:center;gap:12px} .overview .status-ring{flex-basis:82px;height:82px}.hero-copy p{font-size:12px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}.attn-item{align-content:start}.attn-text{min-width:140px}.attn-link{margin-top:auto}#hero-resets{border-top:0;border-left:1px solid var(--line);padding:0 0 0 16px}#hero-resets ol{display:grid;gap:4px}#hero-resets li{display:block;border-left:2px solid var(--line);padding-left:10px}#hero-resets b{display:block;margin-top:4px}}
+@media(min-width:700px) and (max-width:1099px){.layout{display:flex}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:699px){#hero-resets{display:none}.overview-chip{font-size:12px}.provider-avatar{width:34px;height:34px;border-radius:10px}.qc-head{gap:8px}.qc-name{font-size:15px}.quota-card{padding:16px}.overview-info{margin-left:108px}.hero-title{font-size:19px}.hero-copy p{font-size:12px}.attn-text{min-width:180px}.agent-rows .acct-chip{max-width:155px}}
+
+/* Compact rows share the same structure, including agents without quota data. */
+.queue-more{min-height:44px;padding:8px 14px;margin-top:12px;border:1px solid var(--line);border-radius:12px;color:var(--info);background:var(--card);font-size:13px}.q-title a{min-height:44px!important}.q-item{padding:12px 14px}.q-extra .pod>summary{min-height:44px;line-height:44px}.q-extra{display:flex;align-items:center;gap:10px}.q-extra>span{white-space:nowrap}.q-extra .pod{width:auto}.agent-rows{gap:8px}.agent-rows tr{gap:0 12px!important}.agent-rows td:nth-child(3){grid-column:1;grid-row:2;align-self:start}.agent-rows td:nth-child(4){grid-column:1;grid-row:3;align-self:start}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;align-self:start;max-width:100%}.agent-rows td:last-child{grid-column:2;grid-row:4;min-height:44px}.agent-rows .acct-chip{flex-wrap:nowrap!important;border-radius:10px;padding:0 8px;max-width:180px;gap:6px}.agent-rows .acct-name{max-width:100px}.agent-rows .acct-win{white-space:nowrap}.agent-rows td:first-child{min-height:44px;display:flex;align-items:center}.agent-rows td:nth-child(2){align-self:center}.agent-rows td:nth-child(3),.agent-rows td:nth-child(4){line-height:22px}.agent-rows td:last-child:empty{display:none}.agent-rows td:nth-child(5):last-child{grid-row:2 / span 2}.q-link,.work-link{color:var(--info)}
+@media(min-width:1100px){.agent-rows tr{grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center}.agent-rows td:first-child{grid-column:1;grid-row:1}.agent-rows td:nth-child(2){grid-column:2;grid-row:1}.agent-rows td:nth-child(3){grid-column:1;grid-row:2}.agent-rows td:nth-child(4){grid-column:1;grid-row:3}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2}.agent-rows td:last-child{grid-column:3;grid-row:1 / span 3;display:flex;flex-direction:column;align-self:center}.agent-rows .agent-act{min-width:44px}.agent-rows .acct-chip{max-width:180px}.agent-rows .acct-name{max-width:95px}}
 </style>
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
@@ -857,16 +870,15 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
     <button type="button" id="btn-refresh" title="Obnovit teď" aria-label="Obnovit teď">↻</button>
   </header>
   <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+<div class="layout"><div class="col-main">
   <section class="overview" aria-label="Celkový stav">
-    <div class="hero-top"><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
-    <div id="overview-chips" class="overview-chips"></div>
+    <div class="hero-content"><div class="hero-top"><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
+    <p id="overview-info" class="overview-info"></p></div><aside id="hero-resets" aria-label="Nejbližší obnovy"></aside><div id="overview-chips" class="overview-chips"></div>
   </section>
   <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
     <h2 id="attn-h">K řešení</h2><ul class="attn-list" role="list"></ul>
-    <p class="attn-more" hidden></p>
+    <button type="button" class="attn-more" hidden></button>
   </section>
-<div class="layout">
-<div class="col-main">
 AGENT_TABLES_SIDE
 </div>
 <div class="col-side">
@@ -895,7 +907,7 @@ applyTheme(); themeSystem.addEventListener?.("change",applyTheme);
 document.getElementById("btn-theme").addEventListener("click",()=>{themeChoice=document.documentElement.dataset.theme==="dark"?"light":"dark";try{localStorage.setItem("agentsmon.theme",themeChoice);}catch(_){}applyTheme();});
 let lastUpdated=null;
 function updateAge(){
-  const ageText=paused?"Obnova pozastavena":lastUpdated?"Aktualizováno před "+Math.max(0,Math.floor((Date.now()-lastUpdated)/1000))+" s":"Načítání…";
+  const ageText=paused?"Obnova pozastavena":lastUpdated?((Date.now()-lastUpdated)<60000?"Právě aktualizováno":"Aktualizováno před "+fmtDuration((Date.now()-lastUpdated)/1000)):"Načítání…";
   const ageNode=document.getElementById("updated-age");if(ageNode.textContent!==ageText)ageNode.textContent=ageText;
   const dot=document.querySelector(".live-dot"), stopped=paused||document.visibilityState==="hidden";
   if(dot.classList.contains("paused")!==stopped) dot.classList.toggle("paused",stopped);
@@ -903,10 +915,14 @@ function updateAge(){
 setInterval(updateAge,1000);
 function renderOverviewChips(d){
   const agents=[...(d.agents||[]),...(d.agent_tables||[]).filter(t=>t.kind!=="quota").flatMap(t=>t.rows||[])], services=d.services||[];
-  const limits=(d.agent_tables||[]).filter(t=>t.kind==="quota").flatMap(t=>t.rows||[]).flatMap(r=>allBars(r)).filter(x=>!x.b.parent);
-  const available=limits.filter(x=>!isUnavail(x.b)&&Number(x.b.percent)<100).length;
-  const queue=d.queue&&d.queue.summary||{};
-  setHTML(document.getElementById("overview-chips"),[["#agenti",`Agenti ${agents.filter(a=>a.alive).length}/${agents.length}`],["#services",`Služby ${services.filter(s=>s.state==="operational").length}/${services.length}`],["#plugin-tables",`Kvóty ${available}/${limits.length}`],["#fronta",`Fronta ${Number(queue.queued||0)+Number(queue.awaiting_pickup||0)}`]].map(([href,text])=>`<a href="${href}" class="overview-chip" data-overview-link>${esc(text)}</a>`).join(""));
+  const queue=d.queue&&d.queue.summary||{}, n=k=>Number(queue[k]||0);
+  const issues=(d.attention||[]).filter(a=>["exhausted","forecast","cap"].includes(a.kind)).length;
+  const alive=agents.filter(a=>a.alive&&!a.needs_login).length, healthy=services.filter(s=>s.state==="operational").length;
+  const chips=[["#agenti",`Agenti ${alive}/${agents.length}`,alive===agents.length?"ok":"bad"],
+    ["#services",`Služby ${healthy}/${services.length}`,healthy===services.length?"ok":"bad"],
+    ["#plugin-tables",`Kvóty · ${issues} ${plural(issues,"problém","problémy","problémů")}`,issues?"warn":"ok"],
+    ["#fronta",`Fronta · ${n("failed")} selhala · ${n("blocked")} blokována · ${n("queued")+n("awaiting_pickup")} čeká`,n("failed")?"bad":n("blocked")?"warn":"ok"]];
+  setHTML(document.getElementById("overview-chips"),chips.map(([href,text,tone])=>`<a href="${href}" class="overview-chip" data-overview-link><i class="status-dot ${tone}" aria-hidden="true"></i><span>${esc(text)}</span></a>`).join(""));
 }
 document.addEventListener("click",e=>{const a=e.target.closest("[data-overview-link]");if(!a)return;const el=document.querySelector(a.getAttribute("href"));if(el&&el.dataset.collapsed==="1")setCollapsed(el,false,true);});
 const STATE = {
@@ -932,7 +948,7 @@ const SERVICE_LABELS={
 function serviceDisplayName(name){return SERVICE_LABELS[name]||name;}
 function fmtDuration(s){if(s==null)return "–";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;}
-function fmtTime(u){return u?new Date(u*1000).toLocaleString(LOCALE,{timeZone:"Europe/Prague"}):"";}
+function fmtTime(u){return u?localWhen(u):"";}
 function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
@@ -951,13 +967,13 @@ function fmtIn(sec){
 function fmtShort(sec){
   sec=Math.max(0,Math.round(sec));
   const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
-  return d?`${d}d${h}h`:h?`${h}h${String(m).padStart(2,"0")}`:`${Math.max(1,m)}m`;
+  return fmtIn(sec);
 }
 function untilTxt(ts){ const s=ts-nowSec(); return s<=0?"probíhá reset…":"za "+fmtIn(s); }
 function tickResets(){
   document.querySelectorAll("[data-reset-at]").forEach(el=>{
     const ts=Number(el.dataset.resetAt); if(!isFinite(ts)) return;
-    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":fmtShort(ts-nowSec()));
+    if(el.dataset.short) el.textContent="↻ "+(ts<=nowSec()?"teď":"za "+fmtShort(ts-nowSec()));
     else el.textContent=(el.dataset.resetLabel?`reset ${el.dataset.resetLabel} · `:"")+untilTxt(ts);
   });
 }
@@ -987,27 +1003,9 @@ document.addEventListener("click",e=>{
   setTimeout(()=>{ try{ localStorage.setItem(collapseKey("resets"), d.open?"0":"1"); }catch(_){} },0);
 });
 function renderResets(list){
-  const box=document.getElementById("resets-panel"); if(!box) return;
-  const items=list||[]; box.hidden=!items.length;
-  if(items.length){
-    const n=items[0], ex=items.filter(e=>e.exhausted);
-    setHTML(box.querySelector(".resets-next"),`${esc(czLabel(n.source))} · ${esc(czLabel(n.label))} <span class="tabular-nums" data-reset-at="${Number(n.reset_at)}">${esc(untilTxt(n.reset_at))}</span>`);
-    setHTML(box.querySelector(".resets-extra"),
-      (ex.length?`<span class="exh">⚠ vyčerpáno: ${esc(ex.map(e=>e.source+" · "+e.label).join(", "))}</span> · `:"")+
-      `<span class="text-slate-400">${items.length} ${plural(items.length,"okno","okna","oken")}</span>`);
-  }
-  setHTML(box.querySelector(".resets-list"),items.map(e=>{
-    const used=(e.percent==null)?"":`${Number(Number(e.percent).toFixed(1))} % využito`;
-    const lead=e.exhausted?"vyčerpáno · uvolní se":"reset";
-    const fc=e.exhausted?"":fcText(e.forecast);
-    const warn=!!(fc&&e.forecast&&e.forecast.will_exhaust_before_reset);
-    const tip=[e.source,e.label,used,lead+" "+(e.reset_label||""),fc].filter(Boolean).join(" · ");
-    return `<li class="reset-chip${e.exhausted?" exhausted":warn?" will-exhaust":""}" title="${esc(tip)}">`+
-      `<span class="reset-when" data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</span>`+
-      `<span class="reset-what">${esc(czLabel(e.source))} · ${esc(czLabel(e.label))}</span>`+
-      `<span class="reset-meta">${esc(lead)} ${esc(e.reset_label||"")}${used?" · "+esc(used):""}</span>`+
-      (fc?`<span class="reset-fc${warn?" warn":""}">${warn?"⚠ ":""}${esc(fc)}</span>`:"")+`</li>`;
-  }).join(""));
+  const box=document.getElementById("hero-resets"), items=(list||[]).slice(0,3);
+  box.hidden=!items.length;
+  setHTML(box,`<h3>Nejbližší obnovy</h3><ol>${items.map(e=>`<li><span>${esc(czLabel(e.source))} <small>${esc(czLabel(e.label))}</small></span><b data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</b></li>`).join("")}</ol>`);
 }
 
 const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
@@ -1040,14 +1038,19 @@ function metricTile(label,value,sub){
     `<p class="text-lg font-semibold mt-0.5">${esc(value)}</p><p class="text-xs text-slate-400">${esc(sub)}</p></div>`;
 }
 // One compact list row per service: icon + name + state + latency; history & metric tiles behind a disclosure.
+function friendlyDetail(text){
+  const t=String(text||"");
+  if(/served=|lane_state=|cursor_json|--resume|[a-z_]+=(True|False)/.test(t)) return "";
+  return t.replace(/All checks OK/g,"Vše v pořádku").replace(/(\d+\/\d+) bridges running/g,"$1 most běží").replace(/no data yet/g,"Zatím bez dat");
+}
 function serviceItem(s, root=null){
   const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
-  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+(s.detail||"");
+  const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+friendlyDetail(s.detail);
   const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
       `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
       `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
       `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span></div>`+
-    (note?`<p class="svc-note">${esc(note)}</p>`:"")+
+    (note?`<p class="svc-note">${esc(note)}</p>`:"")+(s.detail&&!friendlyDetail(s.detail)?detailsBlock(s.detail,dk+":tech"):"")+
     `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
       `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
       `${metricTile("Dostupnost",s.sla!=null?s.sla.toFixed(2)+" %":"–","za "+s.sla_window_days+" dní ("+(s.sla_samples||0)+" vzorků)")}`+
@@ -1260,8 +1263,9 @@ function fmtIsoText(t){
   });
 }
 function detailsBlock(text,key){
+  if(ROLE!=="admin") return "";
   const parts=fmtIsoText(text).split(/\s+·\s+/).map(s=>s.trim()).filter(Boolean);
-  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+  return `<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Technické detaily</summary>`+
     `<ul class="pod-body">${parts.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`;
 }
 document.addEventListener("toggle",e=>{
@@ -1300,21 +1304,19 @@ function renderAccountChip(a){
   const acc=a.quota_account||null;
   const row=acc?ACCTS[acc.table+"|"+acc.row]:null;
   const src=row||(allBars(a).length?a:null);
-  if(!src) return `<span class="text-slate-300 text-xs" title="Agent nemá přiřazený účet s kvótou">—</span>`;
+  if(!src) return "";
   const w=worstWindow(src), name=acc?acc.name:"kvóta";
   const used=w?Number(w.b.percent):null;
   const tone=used==null?"":used>=90?" err":used>=70?" warn":"";
-  const lab=w?String(w.b.label||winType(w.b,w.c)):"";
+  const lab=w?czLabel(w.b.label||winType(w.b,w.c)):"";
   const users=(acc&&acc.shared_with)||[];
   const shared=users.length>1?"Sdílený účet s: "+users.join(", "):(acc?"Účet používá jen tento agent":"");
   const lines=allBars(src).map(x=>`${x.b.label||winType(x.b,x.c)}: ${isUnavail(x.b)?"neznámé":"využito "+fmtPct(x.b.percent)}${x.b.reset_label?" · reset "+x.b.reset_label:""}`);
   const tip=[name,...lines,shared,acc?"Kliknutím přejdete na účet v sekci kvót.":""].filter(Boolean).join("\n");
   const resetAt=w&&Number(w.b.reset_at)>0?Number(w.b.reset_at):null;
   const aria=`${name}: nejvytíženější okno ${lab||"neznámé"}, využito ${used==null?"neznámé":fmtPct(used)}. ${shared}`;
-  const inner=`<span class="acct-name">${esc(name)}</span><span aria-hidden="true">▸</span>`+
-    `<span class="acct-win">${esc(lab)} ${used==null?"?":esc(fmtPct(used))}</span>`+
-    (used!=null&&used>=90?`<span aria-hidden="true">⚠</span>`:"")+
-    (resetAt?`<span aria-hidden="true" class="quota-until" data-reset-at="${resetAt}" data-short="1">↻ ${esc(fmtShort(resetAt-nowSec()))}</span>`:"");
+  const inner=`<span class="acct-name">${esc(name.replace(/ · agentops$/, ""))}</span>`+
+    `<span class="acct-win">${used==null?"bez dat":esc(fmtPct(used))}</span><span aria-hidden="true">→</span>`;
   return acc
     ?`<a class="acct-chip${tone}" href="#${esc(acc.anchor)}" data-acct="${esc(acc.anchor)}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</a>`
     :`<span class="acct-chip${tone}" title="${esc(tip)}" aria-label="${esc(aria)}">${inner}</span>`;
@@ -1330,35 +1332,43 @@ function freshness(r){
     return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
   return {cls:"ok",txt:r.age==null?"aktuální":(r.age<60?"před chvílí":"před "+fmtDuration(r.age)),reason:""};
 }
+function formatLocalDate(ts){
+  const opts={timeZone:"Europe/Prague"}, d=new Date(Number(ts)*1000), today=new Date(nowSec()*1000);
+  const date=d.toLocaleDateString(LOCALE,opts), same=date===today.toLocaleDateString(LOCALE,opts);
+  const hm=d.toLocaleTimeString(LOCALE,{...opts,hour:"2-digit",minute:"2-digit"});
+  return same?"dnes "+hm:d.toLocaleDateString(LOCALE,{...opts,weekday:"short",day:"numeric",month:"numeric",...(d.getFullYear()!==today.getFullYear()?{year:"numeric"}:{})}).replace(",", "")+" "+hm;
+}
 function localWhen(ts){
-  return new Date(Number(ts)*1000).toLocaleString(LOCALE,{timeZone:"Europe/Prague",weekday:"short",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
+  return formatLocalDate(ts);
 }
 function czLabel(s){
-  return String(s||"").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"V předplatném").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
+  return String(s||"").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"v ceně").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
 }
 function renderWindow(x){
   const b=x.b, m=gaugeMetrics(b), f=b.forecast||{};
   const tone=m.unavail?"info":m.used>=100?"bad":f.will_exhaust_before_reset||m.used>=90?"warn":"ok";
-  const reset=m.resetAt?localWhen(m.resetAt):fmtIsoText(b.reset_label||"");
+  const expiry=b.meta&&b.meta.expires_at;
+  const reset=m.unavail?"":m.resetAt?localWhen(m.resetAt):expiry?new Date(expiry).toLocaleDateString(LOCALE,{day:"numeric",month:"numeric",year:"numeric"}):fmtIsoText(b.reset_label||"");
   const verdict=m.unavail?"Údaj není dostupný":m.used>=100?"Vyčerpáno"+(reset?" – obnova "+reset:""):
     f.will_exhaust_before_reset&&f.exhaust_at?"Dojde v "+localWhen(f.exhaust_at).replace(/ (\d{2}:\d{2})$/, " kolem $1"):
     f.projected_at_reset!=null?"Vystačí – zbude ~"+fmtPct(Math.max(0,100-Number(f.projected_at_reset))):"Předpověď zatím není dostupná";
   return `<div class="limit-row ${tone}"><div class="limit-ring" role="img" aria-label="${esc(m.aria)}" style="--remaining:${m.remShow}%"><span>${m.unavail?"–":esc(fmtPct(Math.round(m.remShow)))}</span></div>`+
-    `<div class="limit-copy"><b>${esc(czLabel(b.label||winType(b,x.c)))}</b><p class="limit-reset">${reset?"↻ "+esc(reset):"Obnova není určena"}</p><p class="verdict ${tone}">${esc(verdict)}</p></div></div>`;
+    `<div class="limit-copy"><b>${esc(czLabel(b.label||winType(b,x.c)))}</b><p class="limit-reset">${reset?"↻ "+esc(reset):m.unavail?"Obnova není dostupná":"Obnova není určena"}</p><p class="verdict ${tone}">${esc(verdict)}</p></div></div>`;
 }
 function creditMeta(wins){
   const m=Object.assign({},...wins.map(x=>x.b.meta||{}));
   if(m.spent_usd==null) return "";
-  const num=v=>Number(v).toLocaleString(LOCALE,{maximumFractionDigits:2});
+  const num=v=>Number(v).toLocaleString(LOCALE,{maximumFractionDigits:1});
   const expiry=typeof m.expires_at==="number"?m.expires_at:Date.parse(m.expires_at)/1000;
   const remainingUsd=m.remaining_usd!=null?Number(m.remaining_usd):m.initial_usd!=null?Math.max(0,Number(m.initial_usd)-Number(m.spent_usd)):null;
   const remainingCzk=m.remaining_czk!=null?m.remaining_czk:m.currency==="CZK"?m.remaining_credit:null;
   const days=expiry>nowSec()?Math.ceil((expiry-nowSec())/86400):null;
   const target=days&&remainingUsd!=null?remainingUsd/days:null;
-  return `<div class="credit-meta"><p>Utraceno ≈ ${esc(num(m.spent_usd))} USD (odhad)</p>`+
-    (remainingCzk!=null?`<p>Zbývá ≈ <b>${esc(num(remainingCzk))} Kč</b></p>`:"")+
-    `<div class="credit-pace"><span>Tempo dnes<b>${m.today_usd!=null?esc(num(m.today_usd))+" USD/den":"Zatím bez údaje"}</b></span><span>Cílové tempo<b>${target!=null?esc(num(target))+" USD/den":"Zatím bez údaje"}</b></span></div>`+
-    (expiry?`<p>Platnost do ${esc(new Date(expiry*1000).toLocaleDateString(LOCALE,{timeZone:"Europe/Prague"}))}</p>`:"")+`</div>`;
+  return `<div class="credit-meta">`+
+    (remainingCzk!=null?`<p class="credit-remaining">zbývá ≈ <b>${esc(Math.round(remainingCzk).toLocaleString(LOCALE))} Kč</b></p>`:"")+
+    `<p>utraceno ≈ ${esc(num(m.spent_usd))} USD (odhad)</p>`+
+    `<p class="credit-pace">dnes ${m.today_usd!=null?esc(num(m.today_usd))+" USD":"bez údaje"} · cíl ≤ ${target!=null?esc(num(target))+" USD/den":"bez údaje"}</p>`+
+    (expiry?`<p>Platnost do ${esc(new Date(expiry*1000).toLocaleDateString(LOCALE,{timeZone:"Europe/Prague",day:"numeric",month:"numeric",year:"numeric"}))}</p>`:"")+`</div>`;
 }
 function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
 function renderQuotaCard(r,table){
@@ -1366,19 +1376,19 @@ function renderQuotaCard(r,table){
   const exh=wins.filter(x=>!x.b.parent&&!isUnavail(x.b)&&Number(x.b.percent)>=100);
   const risk=wins.some(x=>!x.b.parent&&x.b.forecast&&x.b.forecast.will_exhaust_before_reset);
   const plan=(String(r.status_detail||"").match(/(?:^| · )plán ([^·]+)/i)||[])[1]||r.label;
-  const status=exh.length?"Vyčerpáno":risk?"Dojde před obnovou":f.cls!=="ok"?f.txt:"V pořádku";
+  const status=exh.length?"Vyčerpáno":risk?"Dojde dřív":f.cls!=="ok"?f.txt:"V pořádku";
   const users=r.used_by||[];
   const tones={ok:"text-emerald-600",warning:"text-amber-600",error:"text-rose-600",muted:"text-slate-400"};
   const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
   const acts=renderActions(r,table,{lock:false});
   tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
   return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
-    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${esc(r.name.replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).map(n=>n[0]).join("").slice(0,2).toUpperCase())}</div><div class="provider-name"><span class="qc-name">${esc(czLabel(r.name))}</span><span class="plan-label">${esc(czLabel(plan)||"Účet poskytovatele")}</span></div>`+
-    `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(f.reason)}">${esc(status)}</span></div>`+
-    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>x.b.label||winType(x.b,x.c)).join(", "))}</p>`:"")+
+    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${esc(r.name.replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).map(n=>n[0]).join("").slice(0,2).toUpperCase())}</div><div class="provider-name"><span class="qc-name">${esc(/Vertex/i.test(r.name)?"Vertex AI · kredit 300 USD":czLabel(r.name))}</span><span class="plan-label">${esc(/Vertex/i.test(r.name)?"Zkušební kredit":czLabel(plan)||"Účet poskytovatele")}</span></div>`+
+    `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(risk?"Při současném tempu dojde před obnovou":f.reason)}">${esc(status)}</span></div>`+
+    (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>czLabel(x.b.label||winType(x.b,x.c))).join(", "))}</p>`:"")+
     `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
     `<p class="quota-legend">zbývá · ↻ obnova</p><div class="qc-wins">${wins.filter(x=>!x.b.parent).map(x=>renderWindow(x)+wins.filter(y=>y.b.parent===x.b.label).map(y=>`<p class="sub-limit">z toho ${esc(czLabel(y.b.label))} ${esc(fmtPct(y.b.percent))}${y.b.cap!=null?" · strop "+esc(fmtPct(y.b.cap)):""}</p>`).join("")).join("")}${creditMeta(wins)}`+
-      textOnly.map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(c.text)}</div>`).join("")+`</div>`+
+      textOnly.filter(c=>!creditMeta(wins)).map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(czLabel(c.text))}</div>`).join("")+`</div>`+
     (acts?`<div class="qc-actions">${acts}</div>`:"")+
     (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
 }
@@ -1491,9 +1501,9 @@ function renderAgents(root, agents, summary=null, columns=[]){
       workHtml=u?`<a class="work-link ${esc(w.state||"")}" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(wtip)}" aria-label="${esc(wtip)}">${inner}</a>`
         :`<span class="work-link ${esc(w.state||"")}" title="${esc(wtip)}">${inner}</span>`;
     }
-    const cls="border-b border-slate-100 last:border-0"+(waiting?" row-wait":"");
+    const cls="border-b border-slate-100 last:border-0";
     const nameBg=NAME_BG[a.name_color];
-    const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
+    const nameInner=esc(a.name);
     const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
     const nameCell=(a.kind!=="daemon")
       ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (kliknutím zkopírujete)">${nameInner}</span>`
@@ -1502,11 +1512,11 @@ function renderAgents(root, agents, summary=null, columns=[]){
     const recovery=a.restart_warning?`<br><span class="text-xs text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
     const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${esc(a.label)}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
-      `<td class="px-2 py-1.5">${sid}</td>`+
-      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"před "+fmtDuration(a.age):"–"}</td>`+
-      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(statusTxt)}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
-      columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join("")+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${esc(czLabel(a.label==="cursor_json"?"Cursor":a.label))}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
+
+      `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"běží "+fmtDuration(a.age):""}</td>`+
+      `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(friendlyDetail(statusTxt)|| (ok?"Běží":"Nečinný"))}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
+      (isAgents?"":columns.map(c=>`<td class="px-2 py-1.5 text-xs">${renderCell(cellFor(a,c),{compact:isAgents})}</td>`).join(""))+
       (quotaCol?`<td class="px-2 py-1.5">${renderAccountChip(a)}</td>`:"")+
       `<td class="px-2 py-1.5 text-right whitespace-nowrap">${renderActions(a, root.dataset.svc)}</td>`;
     return {key:a.id||a.name, cls, html};
@@ -1580,7 +1590,7 @@ const Q_STATE={running:["▶","Běží"],queued:["◷","Ve frontě"],awaiting_pi
 const CI_ICON={success:["✓","CI úspěšné"],failure:["✕","CI selhalo"],pending:["…","CI probíhá"]};
 let QTAB=(()=>{ try{ const v=localStorage.getItem(Q_TAB_KEY); return Q_TABS.some(t=>t[0]===v)?v:"aktivni"; }catch(e){ return "aktivni"; } })();
 let QFILTER=null;   // "state:<s>" from a header counter; overrides the tab until cleared
-let QDATA=null;
+let QDATA=null, queueExpanded=false;
 function ghUrl(u){ return (typeof u==="string"&&/^https:\/\/github\.com\//.test(u))?u:null; }
 function ghLink(u,html,cls,label){
   const s=ghUrl(u);
@@ -1601,18 +1611,21 @@ function qMatch(it,view){
   if(view==="hotovo") return it.state==="done"&&!(Number(it.age_seconds)>86400);
   return true;
 }
+function workerLabel(name){
+  return ({cursor_json:"Cursor",claude_json:"Claude",codex_json:"Codex"})[name]||name;
+}
 function qItem(it){
   const st=Q_STATE[it.state]||["•",it.state];
   const label=it.state_label_cs||st[1];
   const t=it.task||null, pr=it.pr||null;
   const key="qi:"+(it.kind||"")+":"+(it.issue||(t&&t.id)||it.title||"");
   const num=it.issue?ghLink(it.url,`#${esc(it.issue)}`,"q-link",`${it.kind==="pr"?"PR":"Issue"} #${it.issue} na GitHubu`)
-    :`<span class="text-slate-400" title="${esc((t&&t.id)||"")}">—</span>`;
+    :"";
   const title=ghUrl(it.url)
     ?`<a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.title)}">${esc(it.title)}</a>`
     :`<span class="q-tt" title="${esc(it.title)}">${esc(it.title)}</span>`;
   const mm=it.mismatch?`<span class="q-mm" tabindex="0" title="${esc(it.mismatch)}" aria-label="Nesoulad: ${esc(it.mismatch)}"><span aria-hidden="true">⚠</span>nesoulad</span>`:"";
-  const who=[it.worker,it.profile].filter(Boolean).join(" · ");
+  const who=[workerLabel(it.worker),it.profile].filter(Boolean).join(" · ");
   let prHtml="";
   if(pr&&pr.number){
     const ci=CI_ICON[pr.ci];
@@ -1627,14 +1640,14 @@ function qItem(it){
   if(it.mismatch) det.push("⚠ "+it.mismatch);
   if((it.labels||[]).length) det.push("štítky: "+it.labels.join(", "));
   if(!it.tracked) det.push("Nezařazeno: bez štítku stavu a bez úlohy supervisoru");
-  const details=det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Podrobnosti</summary>`+
+  const details=ROLE==="admin"&&det.length?`<details class="pod" data-key="${esc(key)}"${OPEN_DETAILS.has(key)?" open":""}><summary>Technické detaily</summary>`+
     `<ul class="pod-body">${det.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></details>`:"";
   return {key, cls:"q-item", html:
     `<span class="q-num">${num}</span>`+
     `<span class="q-title">${title}${mm}</span>`+
     `<span class="q-badge ${esc(it.state)}"><span aria-hidden="true">${st[0]}</span>${esc(label)}</span>`+
-    `<span class="q-who" title="${esc(who)}">${who?esc(who):"–"}</span>`+
-    `<span class="q-pr">${prHtml||'<span class="text-slate-300" aria-label="bez PR">–</span>'}</span>`+
+    `<span class="q-who" title="${esc(who)}">${who?esc(who):""}</span>`+
+    `<span class="q-pr">${prHtml||""}</span>`+
     `<span class="q-age" title="${esc(it.updated_at?"aktualizováno "+fmtTime(it.updated_at):"")}">${esc(fmtAgo(it.age_seconds))}</span>`+
     ((tries||details)?`<div class="q-extra">${tries?`<span>${esc(tries)}</span>`:""}${details}</div>`:"")};
 }
@@ -1666,11 +1679,14 @@ function renderQueue(qd){
   if(m.stale&&!qd.loading) parts.push("Zastaralá data fronty"+(m.last_success_at?` – poslední úspěšné načtení ${fmtAgo(nowSec()-Number(m.last_success_at))}`:""));
   if(errs.length) parts.push("Chyby zdrojů: "+errs.join(" · "));
   const note=q(root,".q-note"); note.hidden=!parts.length; note.textContent=parts.join(". ");
-  const view=QFILTER||QTAB, shown=items.filter(it=>qMatch(it,view));
+  const view=QFILTER||QTAB, matched=items.filter(it=>qMatch(it,view)), shown=queueExpanded?matched:matched.slice(0,4);
+  const more=q(root,".queue-more"); more.hidden=matched.length<=4; more.textContent=queueExpanded?"Zobrazit méně":`Zobrazit další (${matched.length-4})`;
+  more.onclick=()=>{queueExpanded=!queueExpanded;renderQueue(QDATA);};
   patchRows(q(root,".q-list"),(qd.loading&&!items.length)?[{key:"empty",cls:"q-empty",html:"načítání…"}]
     :shown.length?shown.map(qItem):[{key:"empty",cls:"q-empty",html:QFILTER?"Žádné položky v tomto stavu.":"Žádné položky."}],"li");
 }
 function setQueueView(tab,filter){
+  queueExpanded=false;
   if(tab){ QTAB=tab; try{ localStorage.setItem(Q_TAB_KEY,tab); }catch(_){} }
   QFILTER=filter||null; renderQueue(QDATA);
 }
@@ -1683,14 +1699,14 @@ document.addEventListener("click",e=>{
 });
 // ---- Vyžaduje pozornost + celkový stav (spočítáno na serveru: compute_attention) ----
 const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],info:["ℹ","Informace"]};
-let lastAttnCount=null;
+let lastAttnCount=null, attentionExpanded=false;
 function renderAttention(list,ov){
   const box=document.getElementById("attention"); if(!box) return;
   const items=Array.isArray(list)?list:[], total=Number(ov&&ov.total)||items.length;
-  const countText=ov?(ov.count_cs||String(ov.count||0)):"0";
+  const countText=String(Number(ov&&ov.critical||0)+Number(ov&&ov.warning||0));
   box.hidden=!items.length;
   box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
-  document.getElementById("attn-h").textContent=`K řešení (${countText})`;
+  document.getElementById("attn-h").textContent="K řešení";
   setHTML(q(box,".attn-list"),items.map(a=>{
     const ic=ATTN_ICON[a.severity]||ATTN_ICON.info, href=typeof a.href==="string"?a.href:"";
     let link="";
@@ -1708,20 +1724,22 @@ function renderAttention(list,ov){
     const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
       row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
-    return `<li class="attn-item ${esc(a.severity)}"><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
+    return `<li class="attn-item ${esc(a.severity)}"${!attentionExpanded&&items.indexOf(a)>=6?" hidden":""}><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
       `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${link}</li>`;
   }).join(""));
-  const more=q(box,".attn-more"); more.hidden=!(total>items.length); more.textContent=`… a další ${total-items.length}`;
+  const more=q(box,".attn-more"); more.hidden=items.length<=6; more.textContent=attentionExpanded?"Zobrazit méně":`Zobrazit další (${items.length-6})`;
+  more.onclick=()=>{attentionExpanded=!attentionExpanded;renderAttention(list,ov);};
   const pill=document.getElementById("overall-pill"), lv=(ov&&ov.level)||"ok";
   pill.className="hero-title "+lv;
   pill.textContent=ov?ov.text_cs:"Načítání…";
+  document.getElementById("overview-info").textContent=ov&&ov.info?`+ ${ov.info} ${plural(ov.info,"informace","informace","informací")}`:"";
   document.getElementById("overview-summary").textContent=ov&&ov.summary_cs||"";
-  const exhausted=items.filter(a=>a.kind==="exhausted"&&a.severity!=="critical").length;
-  const parts=[[(Number(ov&&ov.critical)||0)+exhausted,"var(--bad)"],[Math.max(0,(Number(ov&&ov.warning)||0)-exhausted),"var(--warn)"],[Number(ov&&ov.info)||0,"var(--muted)"]];
+  
+  const parts=[[Number(ov&&ov.critical)||0,"var(--bad)"],[Number(ov&&ov.warning)||0,"var(--warn)"]];
   let offset=0;
-  const segments=total?parts.map(([n,color])=>{const length=n/total*100;const svg=`<circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-dasharray="${Math.max(0,length-1)} ${101-length}" stroke-dashoffset="${-offset}"/>`;offset+=length;return n?svg:"";}).join(""):`<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ok)" stroke-width="9"/>`;
-  setHTML(document.getElementById("status-ring"),`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${total?esc(countText):"✓"}</b><span>${total?"k řešení":"v pořádku"}</span></div>`);
-  document.title=(total?`(${countText}) `:"")+"Agenti";
+  const segments=Number(countText)?parts.map(([n,color])=>{const length=n/Number(countText)*100;const svg=`<circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-dasharray="${Math.max(0,length-1)} ${101-length}" stroke-dashoffset="${-offset}"/>`;offset+=length;return n?svg:"";}).join(""):`<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ok)" stroke-width="9"/>`;
+  setHTML(document.getElementById("status-ring"),`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${Number(countText)?esc(countText):"✓"}</b><span>${Number(countText)?"k řešení":"v pořádku"}</span></div>`);
+  document.title=(Number(countText)?`(${countText}) `:"")+"Agenti";
   if(lastAttnCount!==null&&countText!==lastAttnCount)
     document.getElementById("attn-live").textContent=total?`K řešení: ${countText}`:"Vše v provozu";
   lastAttnCount=countText;
@@ -1854,18 +1872,11 @@ initResetsPanel(); refresh(); schedulePoll();
 
 
 PAGE=PAGE.replace('AGENT_TABLES_MAIN',
-    AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
-        .replace('NOTE','tmux relace s agentem, propojené přes <code>--resume</code> session id')
+    QUEUE_SECTION+AGENT_TABLE.replace('KEY','agents').replace('HIDDEN','').replace('TITLE','Persistentní agenti')
+        .replace('NOTE','')
         .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
-    QUEUE_SECTION+'<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
+    '<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
     '<div id="plugin-tables"></div>'
-    '<section id="resets-panel" hidden class="mb-6" aria-label="Nejbližší resety kvót">'
-    '<details class="resets-details">'
-    '<summary class="resets-sum rounded-lg border px-3 py-2 bg-white border-slate-200">'
-    '<h2 class="inline text-base font-semibold">Nejbližší reset:</h2> <span class="resets-next text-sm font-medium"></span>'
-    '<span class="resets-extra text-xs"></span></summary>'
-    '<p class="text-xs text-slate-400 my-2">Všechny resety kvót · odpočet podle času serveru · vyčerpaná okna červeně</p>'
-    '<ul class="resets-list"></ul></details></section>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
     QUOTA_SECTION+
@@ -2198,12 +2209,12 @@ def _bar_exhausted(b: dict) -> bool:
 LOCAL_TZ = "Europe/Prague"
 _CZ_DAYS = ("po", "út", "st", "čt", "pá", "so", "ne")
 #: Provider window labels → Czech (the UI never shows "week"/"Included"/ISO UTC).
-_CZ_LABELS = {"7d": "týden", "5h": "5 h", "Included": "V předplatném", "Actions min": "Minuty Actions",
+_CZ_LABELS = {"7d": "týden", "5h": "5 h", "Included": "v ceně", "Actions min": "Minuty Actions",
               "GCP Bonus": "Kredit GCP"}
 
 
 def cz_label(label) -> str:
-    """'Claude week' → 'Claude týden', '7d' → 'týden', 'Included' → 'V předplatném'."""
+    """'Claude week' → 'Claude týden', '7d' → 'týden', 'Included' → 'v ceně'."""
     text = str(label or "").strip()
     if text in _CZ_LABELS:
         return _CZ_LABELS[text]
@@ -2362,19 +2373,14 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     warn = sum(1 for x in out if x["severity"] == "warning")
     info = sum(1 for x in out if x["severity"] == "info")
     count = crit + warn
-    # ONE count everywhere (tab badge, header ring, "K řešení" heading): "2 + 1 info".
-    count_cs = f"{count}" + (f" + {info} info" if info else "")
-    if crit:
-        overall: dict = {"level": "critical", "text_cs": f"Kritický stav ({count_cs})"}
-    elif count:
-        overall = {"level": "warning", "text_cs": f"Vyžaduje pozornost ({count_cs})"}
-    elif info:
-        overall = {"level": "ok", "text_cs": f"Vše v provozu ({info} info)"}
-    else:
-        overall = {"level": "ok", "text_cs": "Vše v provozu"}
+    count_cs = str(count)
+    heading = " · ".join(part for part in (
+        f"{crit} {_cz_plural(crit, 'kritický problém', 'kritické', 'kritických')}" if crit else "",
+        f"{warn} upozornění" if warn else "") if part) or "Vše v provozu"
+    overall: dict = {"level": "critical" if crit else "warning" if warn else "ok", "text_cs": heading}
     overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
                    summary_cs=_summary_sentence(out, crit, warn, info))
-    return out[:ATTENTION_MAX], overall
+    return out, overall
 
 
 def _cz_pct(v) -> str:
@@ -2391,12 +2397,22 @@ def _summary_sentence(items: list, crit: int, warn: int, info: int) -> str:
     if not (crit or warn):
         return "Vše běží, nic nečeká na tebe." if not info else f"Vše běží; {info} {_cz_plural(info, 'informace', 'informace', 'informací')} k přečtení."
     bits = []
-    if crit:
-        bits.append(f"{crit} {_cz_plural(crit, 'kritický problém', 'kritické problémy', 'kritických problémů')}")
-    if warn:
-        bits.append(f"{warn} {_cz_plural(warn, 'věc vyžaduje', 'věci vyžadují', 'věcí vyžaduje')} pozornost")
-    lead = items[0]["text_cs"] if items else ""
-    return " a ".join(bits) + (f" — nejdřív: {lead}." if lead else ".")
+    for kind in ("exhausted", "forecast"):
+        item = next((i for i in items if i.get("kind") == kind), None)
+        if item:
+            text = item["text_cs"]
+            if kind == "exhausted":
+                name, _, detail = text.partition(":")
+                reset = detail.partition("obnova ")[2]
+                bits.append(name + " vyčerpán" + (" do " + reset if reset else ""))
+            else:
+                bits.append(text.split(" dojde")[0] + " dojde před obnovou")
+    failed = next((i for i in items if "úloha selhala" in i["text_cs"] or "úlohy selhaly" in i["text_cs"]), None)
+    if failed:
+        bits.append(failed["text_cs"].replace("Fronta: ", "").split(" (")[0])
+    if not bits:
+        bits = [i["text_cs"] for i in items if i["severity"] != "info"][:2]
+    return "; ".join(bits[:3]) + "."
 
 
 def _forecast_attention(data: dict, now: float, add) -> None:

@@ -72,7 +72,7 @@ class AttentionTest(unittest.TestCase):
         self.assertEqual(codex["reset_at"], NOW + 3600)
         self.assertIsNone(att[1]["action"])
         self.assertEqual(ov["level"], "warning")
-        self.assertEqual(ov["text_cs"], "Vyžaduje pozornost (2)")
+        self.assertEqual(ov["text_cs"], "2 upozornění")
 
     def test_queue_counts_ci_and_mismatches(self):
         q = _queue(failed=1, blocked=2, awaiting_pickup=3, mismatches=1)
@@ -102,15 +102,15 @@ class AttentionTest(unittest.TestCase):
         att, _ = dashboard.compute_attention({"queue": q}, now=NOW)
         self.assertEqual(att[0]["text_cs"], "Fronta práce: Zastaralá data – GitHub issues: timeout")
 
-    def test_sorted_and_capped(self):
+    def test_sorted_with_complete_list_for_progressive_disclosure(self):
         agents = [{"name": f"S{i}", "alive": False, "status": "Stopped (manual)"} for i in range(4)]
         agents += [{"name": f"D{i}", "alive": False} for i in range(4)]
         att, ov = dashboard.compute_attention({"agents": agents}, now=NOW)
-        self.assertEqual(len(att), dashboard.ATTENTION_MAX)
-        self.assertEqual([a["severity"] for a in att], ["critical"] * 4 + ["info"] * 2)
+        self.assertEqual(len(att), ov["total"])
+        self.assertEqual([a["severity"] for a in att], ["critical"] * 4 + ["info"] * 4)
         self.assertEqual(ov["total"], 8)
-        self.assertEqual(ov["text_cs"], "Kritický stav (4 + 4 info)")     # one count: badge == card
-        self.assertEqual((ov["count"], ov["info"], ov["count_cs"]), (4, 4, "4 + 4 info"))
+        self.assertEqual(ov["text_cs"], "4 kritické")     # one count: badge == card
+        self.assertEqual((ov["count"], ov["info"], ov["count_cs"]), (4, 4, "4"))
 
     def test_never_raises(self):
         att, ov = dashboard.compute_attention({"agents": [None]}, now=NOW)
@@ -162,7 +162,7 @@ class PageTest(unittest.TestCase):
             self.assertIn(needle, page)
         # Order: attention → quotas → agents → queue (A overview + B quotas)
         self.assertLess(page.index('id="attention"'), page.index('id="agenti"'))
-        self.assertLess(page.index('id="agenti"'), page.index('id="fronta"'))
+        self.assertLess(page.index('id="fronta"'), page.index('id="agenti"'))
         self.assertLess(page.index('id="plugin-tables"'), page.index('id="agenti"'))
 
     def test_queue_links_are_github_only(self):
