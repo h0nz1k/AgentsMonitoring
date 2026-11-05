@@ -205,6 +205,7 @@ class StepUp(Base):
         self.assertFalse(dashboard.needs_step_up("restart", None, d))
         self.assertFalse(dashboard.needs_step_up("restart", "p:t", d))
         self.assertTrue(dashboard.needs_step_up("restart", None, {"step_up_actions": ["restart"]}))
+        self.assertTrue(dashboard.needs_step_up("restart_gateway", None, d))
 
 
 class Startup(unittest.TestCase):

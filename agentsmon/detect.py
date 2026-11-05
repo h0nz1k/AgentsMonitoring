@@ -132,8 +132,12 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
             "health_url": health_url,
             "port": _daemon_port(health_url) if (health_url and alive) else None,
             # A second row of a shared process (e.g. one Hermes gateway, two profiles) must not
-            # offer its own restart/stop: config ``actions: false`` hides them.
+            # offer its own restart/stop: config ``actions: false`` hides them. A shared Hermes
+            # profile row may still offer ``restart_gateway`` (whole multiplex) via gateway_restart.
             **({"actions": False} if d.get("actions") is False else {}),
+            **({"gateway_restart": True,
+                "gateway_profile": d.get("hermes_profile") or "lana"}
+               if d.get("actions") is False and d.get("hermes_profile") else {}),
         })
     return out
 

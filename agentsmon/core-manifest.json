@@ -1,16 +1,17 @@
 {
-  "content_id": "cfe0e45b5cf25c41bcb418eeaef764cd56e2f45fc754d330f356c7adf2dc4dbe",
+  "content_id": "c3c9c4a0d95d030b79d81f8fc313daabe04343f47486056ae020212fcc32b4b0",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
     "alerts.py": "5b47a16011eb3cd52f9765a94bc7466363005cf142c5a1c45675465b8190b7a9",
     "bridges.py": "9525ab9ad7c86f9d0e06ee44c1ee9558ab88331c088a21361fbcc1e86f815540",
     "config.py": "060ab5d487db1233aadc47d9582fe28ac75db06db0ee869a5cc029b0253a3cfe",
-    "dashboard.py": "c713a1c8a01d7ace4365ff04ec93ab61542233a791a8cebff5ff743ed32712b3",
+    "dashboard.py": "1349a1deccffbc52766d8955012e54e1134c105d6afcf81940c6545f51922677",
     "db.py": "470bafc161d24ac1bea302af0873ebf2e596a8ce77796cb29e79189bb2d1c5cf",
-    "detect.py": "5ff27eb27ef052ae89170e66db75865e13995bd4e33c5eff270cc7bf1ae034a9",
+    "detect.py": "38d9802e9f005ba82c9ff47a70f5ac441ab82f79f3d386cad72e14285cbdd23b",
     "dialogs.py": "690cf9a5fb439809329a8054d74de32cca192b67d6e931926762f345812b2b66",
     "doctor.py": "b91ff6caabe4fe9a967e46ff0eed1ad0162b99c94d402bd5dcefa82745bb2818",
+    "gateway_restart.py": "7da75c798b6d8d631ced7ee84cea7967b86581c526705815270112b93b3fb9f7",
     "identity.py": "933d4f6035a33f5c415327db2c3580abdd59049ce529dad24efef5dac87914f5",
     "integrity.py": "d844957010427fce6141365dc00e3dacaa45182e448c7177ae9ed4bc5d7a341b",
     "keepalive.py": "f06616f4b43ebf272c707ad319db034aa89ccefdd8db17b2e62f23aa7a22e21d",
@@ -30,6 +31,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "v0.3.14-redesign-003",
+  "release": "v0.3.14-lane-restart",
   "version": "0.3.14"
 }
