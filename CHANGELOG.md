@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Dashboard: safe `restart_gateway` from a Telegram-lane outage (attention + lane service + LANA Hermes row), with step-up warning, Telegram getMe precheck, 10-minute cooldown, actions.jsonl audit, and post-restart lane watch.
+
 ## 0.3.14 (2026-10-25)
 
 - Persistent-agent quota cells are exactly two compact 5h/week gauges with accessible hover/keyboard/touch tooltips; 1920-wide layout uses up to 1480px.

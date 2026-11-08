@@ -308,9 +308,10 @@ def tailscale_identity(headers, peer, dcfg: dict) -> dict:
             "reason": None if role else "not-allowed"}
 
 
-# Step-up: destructive actions need a second, server-issued one-time confirmation. Restart stays
-# single-confirm. Plugin action ids are matched by word so e.g. "redeem_reset" / "delete_x" count.
-STEP_UP_ACTIONS = frozenset({"stop", "redeem_reset"})
+# Step-up: destructive actions need a second, server-issued one-time confirmation. Plain agent
+# restart stays single-confirm; multiplex gateway restart always needs step-up. Plugin action ids
+# are matched by word so e.g. "redeem_reset" / "delete_x" count.
+STEP_UP_ACTIONS = frozenset({"stop", "redeem_reset", "restart_gateway"})
 _DANGER_RE = re.compile(r"(^|[_-])(redeem|reset|delete|remove|purge|kill|stop|wipe|revoke)([_-]|$)")
 
 
@@ -329,6 +330,9 @@ def step_up_summary(action, name, table, row) -> str:
         return f"Zastavit agenta „{who}“"
     if action == "redeem_reset":
         return f"Uplatnit reset kvóty pro „{who}“ – nevratné"
+    if action == "restart_gateway":
+        from . import gateway_restart
+        return gateway_restart.step_up_summary()
     return f"Spustit akci „{action}“ pro „{who}“"
 
 
@@ -1043,13 +1047,20 @@ function friendlyDetail(text){
   if(/served=|lane_state=|cursor_json|--resume|[a-z_]+=(True|False)/.test(t)) return "";
   return t.replace(/All checks OK/g,"Vše v pořádku").replace(/(\d+\/\d+) bridges running/g,"$1 most běží").replace(/no data yet/g,"Zatím bez dat");
 }
+function gatewayRestartBtn(profile, lane, label){
+  const tip=label||"Restartovat Hermes gateway";
+  const dis=ROLE==="viewer"?" disabled aria-disabled=\"true\"":"";
+  const btn=`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 hover:text-sky-600 hover:bg-slate-100" data-act="restart_gateway" data-name="Hermes" data-profile="${esc(profile||"lana")}" data-lane="${esc(lane||"")}" title="${esc(tip)}" aria-label="${esc(tip)}"${dis}><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>`;
+  return ROLE==="viewer"?`<span class="viewer-lock" title="${esc(VIEWER_TIP)}">${btn}</span>`:btn;
+}
 function serviceItem(s, root=null){
   const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
   const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+friendlyDetail(s.detail);
+  const gw=s.restart_gateway?gatewayRestartBtn(s.gateway_profile,s.name,"Restartovat Hermes gateway (celá multiplex)"):"";
   const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
       `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
       `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
-      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span></div>`+
+      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span>${gw}</div>`+
     (note?`<p class="svc-note">${esc(note)}</p>`:"")+(s.detail&&!friendlyDetail(s.detail)?detailsBlock(s.detail,dk+":tech"):"")+
     `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
       `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
@@ -1433,15 +1444,22 @@ function renderColumns(root,columns,quotaCol=false){
 }
 function renderActions(a,table,{lock=true}={}){
   const stopped=a.status==="Stopped (manual)"||a.status==="Zastaveno (ručně)";
-  const defs=a.plugin?(a.row_actions||[]):(a.actions===false?[]:[{id:"restart",label:"Restartovat "+a.name,icon:"restart"},
-    stopped?{id:"stop",label:"Odebrat "+a.name,icon:"stop",confirm:`Odebrat agenta „${a.name}“ z Monitorování agentů? Soubory konverzace zůstanou na disku.`}
-           :{id:"stop",label:"Zastavit "+a.name,icon:"stop"}]);
+  let defs;
+  if(a.plugin){ defs=a.row_actions||[]; }
+  else if(a.actions===false){
+    defs=a.gateway_restart?[{id:"restart_gateway",label:"Restartovat Hermes gateway",icon:"restart"}]:[];
+  }else{
+    defs=[{id:"restart",label:"Restartovat "+a.name,icon:"restart"},
+      stopped?{id:"stop",label:"Odebrat "+a.name,icon:"stop",confirm:`Odebrat agenta „${a.name}“ z Monitorování agentů? Soubory konverzace zůstanou na disku.`}
+             :{id:"stop",label:"Zastavit "+a.name,icon:"stop"}];
+  }
   const paths={restart:'M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6',stop:'M18 6 6 18M6 6l12 12',run:'M8 5l11 7-11 7z'};
+  const prof=a.gateway_profile||"";
   const buttons=defs.map(x=>x.icon==='reset'
     ?`<button type="button" class="agent-act reset-pill" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.confirm||x.label)}" aria-label="${esc(x.label)}">⟲ ${esc(x.label)}</button>`
-    :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
+    :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(x.id==='restart_gateway'?'Hermes':a.name)}" ${x.id==='restart_gateway'?`data-profile="${esc(prof||'lana')}"`:''} ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
   if(ROLE==="viewer"&&buttons) return `<span class="viewer-lock" title="${esc(VIEWER_TIP)}">`+buttons.replace(/<button /g,'<button disabled aria-disabled="true" ')+'</span>';
-  return buttons+(lock&&(a.actions===false||a.actions_locked)?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
+  return buttons+(lock&&(a.actions===false||a.actions_locked)&&!a.gateway_restart?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
 }
 function renderAgents(root, agents, summary=null, columns=[]){
   // Persistent agents: quota windows live once, in the account cards; each agent gets one account
@@ -1721,8 +1739,13 @@ function renderAttention(list,ov){
     const title=a.title_cs||(cut>0?a.text_cs.slice(0,cut):a.text_cs);
     const detail=a.detail_cs||(cut>0?a.text_cs.slice(cut+2):"");
     const x=a.action;
-    const act=(x&&x.kind==="row_action"&&x.table&&x.row)?renderActions({plugin:true,name:x.name||x.row,id:x.row,
-      row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false}):"";
+    let act="";
+    if(x&&x.kind==="row_action"&&x.table&&x.row){
+      act=renderActions({plugin:true,name:x.name||x.row,id:x.row,
+        row_actions:[{id:x.id,label:x.label,icon:x.icon||"reset",confirm:x.confirm||""}]},x.table,{lock:false});
+    }else if(x&&x.id==="restart_gateway"){
+      act=gatewayRestartBtn(x.profile,x.lane||"",x.label||"Restartovat Hermes gateway");
+    }
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
     return `<li class="attn-item ${esc(a.severity)}"${!attentionExpanded&&items.indexOf(a)>=6?" hidden":""}><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
       `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${link}</li>`;
@@ -1823,6 +1846,19 @@ document.addEventListener("click", e=>{
     showToast("✓ Zkopírováno do schránky");
   });
 });
+async function watchLaneAfterRestart(lane, maxMs){
+  const name=lane||"LANA Hermes Telegram Lane", deadline=Date.now()+(maxMs||180000);
+  showToast("↻ Čekám na připojení lane…");
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,5000));
+    try{
+      const d=await fetch("/api/state",{credentials:"same-origin"}).then(r=>r.json());
+      const s=(d.services||[]).find(x=>x.name===name);
+      if(s&&s.state==="operational"){ showToast("✓ Lane připojena"); return; }
+    }catch(_){}
+  }
+  showToast("⚠ Lane stále odpojená");
+}
 document.addEventListener("click", async e=>{
   const btn=e.target.closest(".agent-act"); if(!btn) return;
   if(ROLE==="viewer"){ showToast("⚠ "+VIEWER_TIP); return; }
@@ -1830,9 +1866,9 @@ document.addEventListener("click", async e=>{
   if(btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
   if(act==="stop" && !btn.dataset.confirm && !confirm(`Zastavit agenta „${name}“? Nebude automaticky restartován, dokud nestisknete ↻.`)) return;
   btn.disabled=true; btn.classList.add("opacity-40");
-  showToast((act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…");
+  showToast((act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"||act==="restart_gateway"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…");
   try{
-    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row});
+    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row,profile:btn.dataset.profile||undefined});
     const send=async tok=>{
       const h={"Content-Type":"application/json","X-Agentsmon":"action"};
       if(tok) h["X-Agentsmon-Confirm"]=tok;
@@ -1848,8 +1884,9 @@ document.addEventListener("click", async e=>{
       [r,j]=await send(j.confirm_token);
     }
     showToast((j&&j.ok?"✓ ":"⚠ ")+((j&&j.message)||(r.ok?"hotovo":"selhalo")));
+    if(act==="restart_gateway"&&j&&j.ok) await watchLaneAfterRestart(btn.dataset.lane||j.lane,180000);
   }catch(err){ showToast("⚠ "+err); }
-  setTimeout(refresh, act==="restart"?2500:600);
+  setTimeout(refresh, act==="restart"||act==="restart_gateway"?2500:600);
 });
 function schedulePoll(){
   clearInterval(pollTimer);
@@ -1915,11 +1952,12 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
         metric = s.get("metric", "latency")   # "latency" | "agents" (show running-agent count)
         state, stale, data_age = _staleness(cur, s.get("interval_seconds") or interval)
-        out.append({
+        detail = cur["detail"] if cur else "no data yet"
+        card = {
             "name": name,
             "up": bool(cur and cur["up"]),
             "state": state, "stale": stale, "data_age": data_age,
-            "detail": cur["detail"] if cur else "no data yet",
+            "detail": detail,
             "last_ts": cur["ts"] if cur else None,
             "latency_ms": round(lat * 1000) if lat is not None else None,
             "avg_latency_ms": (lambda a: round(a * 1000) if a is not None else None)(db.avg_latency(name, win_days * 86400)),
@@ -1932,7 +1970,12 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "uptime_seconds": db.uptime_seconds(name, min_outage),
             "sla": sla_pct, "sla_window_days": win_days, "sla_samples": samples,
             "timeline": db.timeline(name, tdays * 86400, tdays), "timeline_days": tdays,
-        })
+        }
+        from . import gateway_restart
+        if gateway_restart.is_lane_service(card):
+            card["restart_gateway"] = True
+            card["gateway_profile"] = gateway_restart.profile_for_name(name, cfg)
+        out.append(card)
     return out
 
 
@@ -2262,11 +2305,20 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
         out.append({"severity": sev, "text_cs": text, "href": href, "action": action, **extra})
 
     try:
+        from . import gateway_restart
         for s in data.get("services") or []:
             name = SERVICE_LABELS_CS.get(s.get("name"), s.get("name") or "služba")
             href = "#" + (s.get("anchor") or "services")
+            lane_action = None
+            if s.get("restart_gateway") or gateway_restart.is_lane_service(s):
+                lane_action = {
+                    "kind": "gateway_restart", "id": "restart_gateway",
+                    "name": "Hermes", "label": "Restartovat gateway", "icon": "restart",
+                    "profile": s.get("gateway_profile") or gateway_restart.profile_for_name(s.get("name") or "", {}),
+                    "lane": s.get("name"),
+                }
             if s.get("state") == "outage":
-                add("critical", f"{name}: výpadek", href)
+                add("critical", f"{name}: výpadek", href, lane_action)
             elif s.get("state") == "stale":
                 age = f" (poslední data před {_cz_duration(s.get('data_age'))})" if s.get("data_age") is not None else ""
                 add("warning", f"{name}: Zastaralá data{age}", href)
@@ -3003,24 +3055,58 @@ def make_server(host: str, port: int, cfg: dict):
             name = params.get("name") or (qs.get("name", [None])[0])
             act = params.get("action") or (qs.get("action", [None])[0])
             table, row = params.get('table'), params.get('row')
+            profile = params.get("profile")
             logged = {"name": name, "table": table, "row": row, "action": act}
             if self._ident["role"] != "admin":
                 return self._post_fail(403, "role", "Akce smí spouštět jen správce (vaše role: "
                                        + ROLE_CS.get(self._ident["role"], "?") + ").", logged)
             if table is not None and not all(isinstance(x,str) and 0<len(x)<=240 for x in (table,row,act)):
                 return self._post_fail(400, "params", "Neplatné parametry akce.", logged)
-            if step_up and needs_step_up(act, table, dcfg) and (table is not None or isinstance(name, str)):
-                target = (table, row) if table is not None else (name,)
+            from . import gateway_restart as gw
+            if act == "restart_gateway":
+                name = name if isinstance(name, str) and name else "Hermes"
+                logged["name"] = name
+            gw_profile = gw.normalize_profile(profile or gw.profile_for_name(name or "", cfg))
+            if act == "restart_gateway":
+                logged["profile"] = gw_profile
+            # Gateway restart always needs step-up (even when dashboard.step_up is off).
+            want_step = needs_step_up(act, table, dcfg) and (
+                table is not None or isinstance(name, str) or act == "restart_gateway")
+            if want_step and (step_up or act == "restart_gateway"):
+                if act == "restart_gateway":
+                    target = ("Hermes", gw_profile)
+                else:
+                    target = (table, row) if table is not None else (name,)
                 user = self._ident["user"] or ""
                 presented = self.headers.get("X-Agentsmon-Confirm")
                 if not presented:
+                    if act == "restart_gateway":
+                        wait = gw.cooldown_remaining()
+                        if wait > 0:
+                            mins = max(1, (wait + 59) // 60)
+                            msg = f"Další restart gateway až za {mins} min."
+                            gw.log_action({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                           "user": user, "action": act, "profile": gw_profile,
+                                           "precheck": None, "result": "rate-limit", "message": msg})
+                            return self._post_fail(429, "gateway-cooldown", msg, logged,
+                                                   extra=(("Retry-After", str(wait)),))
+                        pre = gw.precheck(gw_profile)
+                        summary = gw.confirm_summary(pre, cfg)
+                        gw.log_action({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                       "user": user, "action": act, "profile": gw_profile,
+                                       "precheck": pre.get("status"), "result": "confirm-required",
+                                       "message": pre.get("message_cs")})
+                    else:
+                        summary = step_up_summary(act, name, table, row)
                     tok = confirms.issue(user, act, target)
-                    summary = step_up_summary(act, name, table, row)
                     self._audit(428, "confirm-required", None, logged, summary)
                     return self._reply(428, json.dumps({
                         "ok": False, "error": "confirm-required", "confirm_token": tok,
                         "expires_in": int(confirms.ttl), "summary": summary,
-                        "message": "Akce vyžaduje potvrzení."}, ensure_ascii=False).encode())
+                        "message": "Akce vyžaduje potvrzení.",
+                        **({"precheck": {"status": pre.get("status"), "helps": pre.get("helps"),
+                                         "message_cs": pre.get("message_cs")}}
+                           if act == "restart_gateway" else {})}, ensure_ascii=False).encode())
                 why = confirms.redeem(presented.strip(), user, act, target)
                 if why:
                     return self._post_fail(403, "confirm-" + why, "Potvrzení je neplatné nebo vypršelo – "
@@ -3030,9 +3116,37 @@ def make_server(host: str, port: int, cfg: dict):
                 ok, msg = plugins.manager(config.load()).action(table,row,act)
                 body = json.dumps({'ok':ok,'message':msg}).encode()
                 status = 200 if ok else 409
+            elif act == "restart_gateway":
+                user = self._ident["user"] or ""
+                wait = gw.cooldown_remaining()
+                if wait > 0:
+                    mins = max(1, (wait + 59) // 60)
+                    msg = f"Další restart gateway až za {mins} min."
+                    gw.log_action({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                   "user": user, "action": act, "profile": gw_profile,
+                                   "precheck": None, "result": "rate-limit", "message": msg})
+                    return self._post_fail(429, "gateway-cooldown", msg, logged,
+                                           extra=(("Retry-After", str(wait)),))
+                pre = gw.precheck(gw_profile)
+                try:
+                    ok, msg = gw.perform(cfg)
+                except Exception as exc:
+                    ok, msg = False, str(exc)
+                if ok:
+                    gw.mark_restart()
+                lane = gw.lane_service_name(cfg)
+                gw.log_action({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                               "user": user, "action": act, "profile": gw_profile,
+                               "precheck": pre.get("status"),
+                               "result": "ok" if ok else "error", "message": _clip(msg, 240)})
+                body = json.dumps({"ok": ok, "message": msg, "lane": lane,
+                                   "precheck": {"status": pre.get("status"), "helps": pre.get("helps"),
+                                                "message_cs": pre.get("message_cs")}},
+                                  ensure_ascii=False).encode()
+                status = 200 if ok else 500
             elif not isinstance(name,str) or not name or act not in ("restart", "stop"):
                 self._audit(400, "rejected", "params", logged)
-                body = json.dumps({"ok": False, "error": "need name + action (restart|stop)"}).encode()
+                body = json.dumps({"ok": False, "error": "need name + action (restart|stop|restart_gateway)"}).encode()
                 status = 400
                 ok = None
             else:

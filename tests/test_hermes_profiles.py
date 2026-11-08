@@ -83,6 +83,9 @@ class HermesProfiles(unittest.TestCase):
         self.assertEqual(rows[1]["vendor"], "anthropic")
         self.assertNotIn("actions", rows[0])
         self.assertIs(rows[1]["actions"], False)
+        self.assertTrue(rows[1]["gateway_restart"])
+        self.assertEqual(rows[1]["gateway_profile"], "lana")
+        self.assertNotIn("gateway_restart", rows[0])
 
 
 if __name__ == "__main__":
