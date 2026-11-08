@@ -43,10 +43,14 @@ class LauncherSingleSupervisorTests(unittest.TestCase):
                 result = subprocess.run(['/bin/sh', str(launcher)], env=env, capture_output=True, text=True,
                                         timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
-            deadline = time.monotonic() + 10  # nohup'd start is backgrounded; CI runners are slow
+            # nohup'd start is backgrounded; do not match the unit name
+            # "agentsmon-dashboard.service" which also contains "dashboard".
+            dashboard_line = 'python:-m agentsmon dashboard'
+            deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if trace.exists() and 'keepalive' in trace.read_text() and (
-                        (unit_enabled and same_state) or 'dashboard' in trace.read_text()):
+                text = trace.read_text() if trace.exists() else ''
+                if 'keepalive' in text and (
+                        (unit_enabled and same_state) or dashboard_line in text):
                     break
                 time.sleep(0.05)
             return trace.read_text().splitlines()
