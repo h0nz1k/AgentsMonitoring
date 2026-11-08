@@ -43,7 +43,8 @@ class LauncherSingleSupervisorTests(unittest.TestCase):
                 result = subprocess.run(['/bin/sh', str(launcher)], env=env, capture_output=True, text=True,
                                         timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
-            for _ in range(50):  # nohup'd start is backgrounded
+            deadline = time.monotonic() + 10  # nohup'd start is backgrounded; CI runners are slow
+            while time.monotonic() < deadline:
                 if trace.exists() and 'keepalive' in trace.read_text() and (
                         (unit_enabled and same_state) or 'dashboard' in trace.read_text()):
                     break
