@@ -33,6 +33,9 @@ def _pythonpath() -> str:
     return str(Path(agentsmon.__file__).resolve().parent.parent)
 
 
+SYSTEMD_UNIT = "agentsmon-dashboard.service"
+
+
 def _launcher_path() -> Path:
     return config.state_dir() / MARKER
 
@@ -45,6 +48,7 @@ def _launcher_content() -> str:
 # Agents Monitoring launcher — started by cron (@reboot + every minute). Idempotent: starts the
 # dashboard only if it isn't running, then runs one keepalive pass (a no-op if disabled / no agents).
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+export XDG_RUNTIME_DIR="${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}"   # lets cron query systemctl --user
 export PYTHONPATH="{_pythonpath()}"
 export AGENTSMON_CONFIG="{config.DEFAULT_PATH}"
 export AGENTSMON_STATE="{config.state_dir()}"
@@ -55,7 +59,13 @@ mkdir -p "{state}"
 # Guard on the dashboard's own pidfile (a plain `pgrep -f "agentsmon dashboard"` also matched any
 # shell whose command line mentioned the dashboard, and then nothing was started — 2026-09-04).
 PIDFILE="{state}/dashboard.pid"
-if ! ( [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null ) \\
+# Single supervisor: when the {SYSTEMD_UNIT} systemd user unit is enabled it owns the dashboard; this
+# launcher then only runs keepalive (only a unit serving this same state dir counts). (2026-11-08: after a reboot this cron line won the port race with a
+# stale checkout and the unit crash-looped on "Address already in use".)
+if command -v systemctl >/dev/null 2>&1 && systemctl --user is-enabled --quiet {SYSTEMD_UNIT} 2>/dev/null \\
+   && systemctl --user show -p Environment {SYSTEMD_UNIT} 2>/dev/null | grep -q "AGENTSMON_STATE={state}\\( \\|$\\)"; then
+  :
+elif ! ( [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null ) \\
    && ! pgrep -u "$(id -u)" -f -- "-m agentsmon dashboard$" >/dev/null 2>&1; then
   nohup "$PY" -m agentsmon dashboard >> "{log}" 2>&1 &
 fi

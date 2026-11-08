@@ -1,5 +1,5 @@
 {
-  "content_id": "c3c9c4a0d95d030b79d81f8fc313daabe04343f47486056ae020212fcc32b4b0",
+  "content_id": "651b110462bc9ed8e7e04f9f7b81d52764463d907df8d884df5eb2219cb66869",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
@@ -22,7 +22,7 @@
     "probe.py": "4d494a72fe0584bd8ab6630e96cff8930a503bc188dcb9f23642d326aae7bcff",
     "quota.py": "70305b7cfbdc78f48fc85299170b77c8382af79e9a9024786d0ecde478339b9c",
     "restarter.py": "90e18202d5360798ac8a9bba956cf5a11f7475248941674cc1fde20a0456ab91",
-    "service.py": "8a0145501b5596586633e91b3479d20b3f45aa54f75e0fef858ab5df08d7f70a",
+    "service.py": "009e48bef7b9bc705b42b32bb6aeecb8ed5979c3104a01498e3a9a5bbcf8763c",
     "static/tailwind.js": "176e894661aa9cdc9a5cba6c720044cbbf7b8bd80d1c9a142a7c24b1b6c50d15",
     "status.py": "03f98847add6fad24e51760f68bccf38c0f2bebb58fe541122e3d2b83d94d2da",
     "uninstaller.py": "c149b57897c91322abcfbf3a41e47b1fd37127212f0f6f9de5f9813af14a5b26",
@@ -31,6 +31,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "v0.3.14-lane-restart",
+  "release": "v0.3.14-launcher-single-supervisor",
   "version": "0.3.14"
 }
