@@ -116,7 +116,20 @@ class PluginContract(unittest.TestCase):
             data=plugins.collect(cfg,[])
             self.assertIn('timed out',data['errors'][0]['detail'])
             self.assertFalse(data.get('loading',False))
-            plugins._cache=('',time.monotonic()-31,{'tables':[{'up':True}]})
+            # 31 s old: shown, but visibly stale and never actionable while the refresh runs.
+            row={'id':'r','name':'R','alive':True,'row_actions':[{'id':'reset','label':'Reset'}]}
+            plugins._cache=('',time.monotonic()-31,{'tables':[{'up':True,'rows':[row]}],'patches':[{'row_actions':[1]}]})
+            data=plugins.collect(cfg,[])
+            self.assertTrue(data['loading'])
+            self.assertTrue(data['tables'][0]['stale'])
+            self.assertIn('Aktualizuji', data['tables'][0]['note'])
+            self.assertNotIn('row_actions',data['tables'][0]['rows'][0])
+            self.assertTrue(data['tables'][0]['rows'][0]['actions_locked'])
+            self.assertNotIn('row_actions',data['patches'][0])
+            self.assertIn('row_actions',plugins._cache[2]['tables'][0]['rows'][0], 'cache itself untouched')
+            while plugins._refreshing and time.monotonic()<deadline: time.sleep(.02)
+            # Older than MAX_STALE_SECONDS: no plugin data at all rather than old numbers.
+            plugins._cache=('',time.monotonic()-plugins.MAX_STALE_SECONDS-1,{'tables':[{'up':True}]})
             data=plugins.collect(cfg,[])
             self.assertFalse(data['tables'])
             self.assertTrue(data['loading'])

@@ -128,8 +128,9 @@ class RetestRegressions(unittest.TestCase):
         manager = SimpleNamespace(plugins=['fixture'])
         stale = {'tables': [{'up': True, 'rows': [{'row_actions': [{'id': 'reload'}]}]}],
                  'patches': [{'row_id': 'old'}], 'columns': [{'id': 'old'}], 'errors': []}
-        for cache in (None, ('old', time.monotonic() - 31, stale)):
-            with self.subTest(initial=cache is None), \
+        expired = ('old', time.monotonic() - plugins.MAX_STALE_SECONDS - 1, stale)
+        for name, cache in (('initial', None), ('expired', expired)):
+            with self.subTest(case=name), \
                     patch.object(plugins, 'manager', return_value=manager), \
                     patch.object(plugins.threading.Thread, 'start'), \
                     patch.multiple(plugins, _cache=cache, _refreshing=False):
@@ -139,6 +140,17 @@ class RetestRegressions(unittest.TestCase):
                 self.assertEqual(data['columns'], [])
                 self.assertEqual(data['errors'], [], 'Loading is not a failed check')
                 self.assertTrue(data['loading'])
+        # Within MAX_STALE_SECONDS (2026-11-09 operator request: no blank page that looks healthy):
+        # the last snapshot is shown, flagged stale, and never actionable.
+        with patch.object(plugins, 'manager', return_value=manager), \
+                patch.object(plugins.threading.Thread, 'start'), \
+                patch.multiple(plugins, _cache=('old', time.monotonic() - 31, stale), _refreshing=False):
+            data = plugins.collect({}, [])
+            self.assertTrue(data['loading'])
+            self.assertEqual(data['errors'], [])
+            self.assertTrue(all(t.get('stale') for t in data['tables']))
+            self.assertFalse(any('row_actions' in r for t in data['tables'] for r in t['rows']))
+            self.assertTrue(all(r.get('actions_locked') for t in data['tables'] for r in t['rows']))
 
     def test_http_state_exposes_loading_separately_from_real_errors(self):
         empty = {k: [] for k in ('tables', 'columns', 'patches', 'hidden_sessions',
