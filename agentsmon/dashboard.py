@@ -1408,11 +1408,11 @@ function renderQuotaSection(root,t){
   const exh=rows.filter(r=>allBars(r).some(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100)).length;
   const bad=t.up===false||!!t.error;
   const head=q(root,".svc-head"), dot=q(root,".svc-dot"), cnt=q(root,".agents-count");
-  const look=bad?STATE.outage:exh?["bg-amber-400","","text-amber-600","bg-amber-50 border-amber-200"]:STATE.operational;
+  const look=bad?STATE.outage:t.stale?STATE.stale:exh?["bg-amber-400","","text-amber-600","bg-amber-50 border-amber-200"]:STATE.operational;
   head.className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
   dot.className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
   cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
-  cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"");
+  cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"")+(t.stale?" · aktualizuji…":"");
   patchRows(q(root,".quota-cards"), rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc))
     :[{key:"empty",cls:"text-sm text-slate-400",html:esc(t.error||"Žádné účty.")}], "li");
   const note=q(root,".qc-note"), txt=[t.error,t.note].filter(Boolean).join(" ");
@@ -1761,7 +1761,10 @@ function renderAttention(list,ov){
   const parts=[[Number(ov&&ov.critical)||0,"var(--bad)"],[Number(ov&&ov.warning)||0,"var(--warn)"]];
   let offset=0;
   const segments=Number(countText)?parts.map(([n,color])=>{const length=n/Number(countText)*100;const svg=`<circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="${color}" stroke-width="9" stroke-dasharray="${Math.max(0,length-1)} ${101-length}" stroke-dashoffset="${-offset}"/>`;offset+=length;return n?svg:"";}).join(""):`<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ok)" stroke-width="9"/>`;
-  setHTML(document.getElementById("status-ring"),`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${Number(countText)?esc(countText):"✓"}</b><span>${Number(countText)?"k řešení":"v pořádku"}</span></div>`);
+  const loadingOv=lv==="loading"&&!Number(countText);
+  setHTML(document.getElementById("status-ring"),loadingOv
+    ?`<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="50" fill="none" stroke="var(--line)" stroke-width="9"/></svg><div class="ring-center"><b>…</b><span>načítání</span></div>`
+    :`<svg viewBox="0 0 120 120" aria-hidden="true">${segments}</svg><div class="ring-center"><b>${Number(countText)?esc(countText):"✓"}</b><span>${Number(countText)?"k řešení":"v pořádku"}</span></div>`);
   document.title=(Number(countText)?`(${countText}) `:"")+"Agenti";
   if(lastAttnCount!==null&&countText!==lastAttnCount)
     document.getElementById("attn-live").textContent=total?`K řešení: ${countText}`:"Vše v provozu";
@@ -2432,6 +2435,10 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     overall: dict = {"level": "critical" if crit else "warning" if warn else "ok", "text_cs": heading}
     overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
                    summary_cs=_summary_sentence(out, crit, warn, info))
+    # Quota/plugin data not there yet: never claim "all OK" before the numbers that may say otherwise.
+    if data.get("plugin_loading") and not data.get("agent_tables") and not crit:
+        overall.update(level="loading", text_cs="Načítám…",
+                       summary_cs="Načítám kvóty a stav pluginů – výsledek se ještě může změnit.")
     return out, overall
 
 
@@ -2738,6 +2745,19 @@ def _quota_loop(stop: threading.Event, interval: int = 60) -> None:
             print(f"quota loop: {type(exc).__name__}: {exc}", flush=True)
 
 
+def _warm_plugins(tries: int = 10, pause: float = 2.0) -> bool:
+    """Build the state once at startup (starts the off-thread plugin refresh) and wait until it lands."""
+    for _ in range(tries):
+        try:
+            if not _state_data().get("plugin_loading"):
+                return True
+        except Exception as exc:              # warm-up is best effort
+            print(f"plugin warm-up: {type(exc).__name__}: {exc}", flush=True)
+            return False
+        time.sleep(pause)
+    return False
+
+
 def _probe_loop(stop: threading.Event) -> None:
     while not stop.is_set():
         try:
@@ -2799,6 +2819,8 @@ def serve(host: str, port: int) -> None:
     workqueue.start(cfg)      # GitHub/supervisor work queue: background cache, no-op when disabled
     threading.Thread(target=_quota_loop, args=(threading.Event(),), daemon=True,
                      name="agentsmon-quota").start()
+    # Warm the plugin cache right away so the first page after a (re)start already has quotas.
+    threading.Thread(target=_warm_plugins, daemon=True, name="agentsmon-warm").start()
     write_pidfile()
     server.serve_forever()
 

@@ -4,6 +4,7 @@ Trusted administrator-installed code, NOT an OS security sandbox. No dashboard
 auth/config object is handed to a plugin. Every plugin has its own settings.
 """
 from concurrent.futures import ThreadPoolExecutor
+import copy
 from dataclasses import dataclass
 import importlib.metadata
 import json
@@ -351,12 +352,37 @@ def manager(cfg):
         return _manager
 
 
+#: How long the last good plugin snapshot may be shown (marked stale, read-only) while a refresh runs.
+#: Beyond this the dashboard shows no plugin data at all rather than old numbers.
+MAX_STALE_SECONDS=600
+
+
+def _stale_snapshot(result,age):
+    """Copy of a cached snapshot for display during a refresh: flagged stale, never actionable."""
+    out=copy.deepcopy(result)
+    mins=max(1,int(age//60))
+    note='Data z doby před %d min, aktualizuji…'%mins if age>=60 else 'Aktualizuji…'
+    for t in out.get('tables',[]):
+        t['stale']=True
+        t['note']=(str(t.get('note') or '')+' '+note).strip()
+        for r in t.get('rows',[]):
+            r.pop('row_actions',None)
+            r['actions_locked']=True
+    for p in out.get('patches',[]):
+        if isinstance(p,dict): p.pop('row_actions',None)
+    out['loading']=True
+    out['stale_seconds']=int(age)
+    return out
+
+
 def collect(cfg,agents):
     """Never run or wait for plugins on the HTTP request thread."""
     global _refreshing
     with _lock:
         m=manager(cfg)
-        signature=json.dumps([{k:v for k,v in a.items() if k in PUBLIC_FIELDS and k!='age'} for a in agents],sort_keys=True)
+        # Volatile probe numbers (age, latency) must not invalidate the cache on every poll.
+        signature=json.dumps([{k:v for k,v in a.items() if k in PUBLIC_FIELDS and k not in ('age','latency_ms')}
+                              for a in agents],sort_keys=True)
         if _cache and _cache[0]==signature and time.monotonic()-_cache[1]<10: return _cache[2]
         if not _refreshing:
             _refreshing=True
@@ -370,6 +396,9 @@ def collect(cfg,agents):
                     with _lock: _refreshing=False
             threading.Thread(target=refresh,daemon=True,name='agentsmon-plugins').start()
         if _cache and time.monotonic()-_cache[1]<30: return _cache[2]
+        # Older snapshot: show it read-only and visibly stale instead of an empty, seemingly healthy page.
+        if _cache and time.monotonic()-_cache[1]<MAX_STALE_SECONDS:
+            return _stale_snapshot(_cache[2],time.monotonic()-_cache[1])
         # No stale green row may remain actionable while refresh is stuck.
         result={k:[] for k in ('tables','columns','patches','hidden_sessions','hidden_services','errors','plugins')}
         result['loading']=bool(m.plugins)
