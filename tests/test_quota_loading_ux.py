@@ -24,6 +24,14 @@ class OverallWhileLoading(unittest.TestCase):
                       open(dashboard.__file__, encoding="utf-8").read())
 
 
+class LoadingBanner(unittest.TestCase):
+    def test_banner_only_without_any_plugin_data(self):
+        src = open(dashboard.__file__, encoding="utf-8").read()
+        self.assertIn('const plWait=!!d.plugin_loading&&!(d.agent_tables||[]).length;', src)
+        self.assertIn('pl.hidden=!plWait', src)
+        self.assertNotIn('pl.hidden=!d.plugin_loading', src)
+
+
 class CacheSignature(unittest.TestCase):
     def test_latency_change_keeps_fresh_cache(self):
         cfg = {"modules_dir": "/nonexistent-agentsmon-test"}

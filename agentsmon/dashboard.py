@@ -1816,7 +1816,10 @@ async function refresh(){
     const allTables=d.agent_tables||[];
     syncTables(document.getElementById("plugin-agent-tables"), allTables.filter(t=>t.kind!=="quota"), allTables, d);
     syncTables(document.getElementById("plugin-tables"), allTables.filter(t=>t.kind==="quota"), allTables, d);
-    const pl=document.getElementById("plugin-loading"); if(pl.hidden!==!d.plugin_loading) pl.hidden=!d.plugin_loading;
+    // Only when there is nothing to show yet: a background refresh of already visible (stale-marked)
+    // quota data is not "loading" for the reader.
+    const plWait=!!d.plugin_loading&&!(d.agent_tables||[]).length;
+    const pl=document.getElementById("plugin-loading"); if(pl.hidden!==!plWait) pl.hidden=!plWait;
     const errors=document.getElementById("plugin-errors");
     if(sectionChanged("plugin_errors",d.plugin_errors)) errors.replaceChildren();
     if(!errors.childElementCount) (d.plugin_errors||[]).forEach(p=>{
@@ -1918,7 +1921,7 @@ PAGE=PAGE.replace('AGENT_TABLES_MAIN',
     '<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
     '<div id="plugin-tables"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
-    'Načítání pluginů: čeká se na ohraničenou kontrolu</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
+    'Načítám kvóty a data pluginů…</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
     QUOTA_SECTION+
     '<template id="agent-table-tpl">'+AGENT_TABLE.replace('KEY','plugin').replace('HIDDEN','')
         .replace('TITLE','Agenti').replace('NOTE','')+'</template>')
