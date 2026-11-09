@@ -2160,6 +2160,52 @@ def _state() -> bytes:
     return json.dumps(_state_data()).encode()
 
 
+#: /api/state is polled by every open page; a full build costs ~2 s (SLA/timeline queries, agent
+#: detection subprocesses). Serve the last build when it is this fresh, rebuild in the background
+#: when it is older but still usable, and build synchronously only when there is nothing recent.
+STATE_FRESH_SECONDS = 4.0
+STATE_MAX_AGE_SECONDS = 30.0
+_state_lock = threading.Lock()
+_state_cache: tuple | None = None          # (monotonic time, bytes)
+_state_building = False
+
+
+def _rebuild_state() -> bytes:
+    global _state_cache, _state_building
+    try:
+        body = _state()
+        with _state_lock:
+            _state_cache = (time.monotonic(), body)
+        return body
+    finally:
+        with _state_lock:
+            _state_building = False
+
+
+def _cached_state(clock=time.monotonic) -> bytes:
+    """Fast /api/state for polling pages (stale-while-revalidate, bounded by STATE_MAX_AGE_SECONDS)."""
+    global _state_building
+    with _state_lock:
+        cache = _state_cache
+        age = clock() - cache[0] if cache else None
+        if cache and age < STATE_FRESH_SECONDS:
+            return cache[1]
+        if cache and age < STATE_MAX_AGE_SECONDS:
+            if not _state_building:
+                _state_building = True
+                threading.Thread(target=_rebuild_state, daemon=True, name="agentsmon-state").start()
+            return cache[1]
+        _state_building = True
+    return _rebuild_state()
+
+
+def invalidate_state_cache() -> None:
+    """After an action the next poll must show its effect, not a pre-action snapshot."""
+    global _state_cache
+    with _state_lock:
+        _state_cache = None
+
+
 def _state_data() -> dict:
     cfg = config.load()
     agents = _agents_state(cfg)
@@ -3008,7 +3054,7 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
             elif self.path.startswith("/api/state"):
-                body = _state()
+                body = _cached_state()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
             elif is_metrics:
@@ -3180,6 +3226,7 @@ def make_server(host: str, port: int, cfg: dict):
                 status = 200 if ok else 500
             if ok is not None:
                 self._audit(status, "ok" if ok else "error", None, logged, msg)
+                invalidate_state_cache()          # the next poll shows the action's effect
             self._reply(status, body, "application/json")
 
     server = ThreadingHTTPServer((host, port), Handler)
