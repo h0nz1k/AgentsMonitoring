@@ -23,7 +23,7 @@ STATE = {
                   "state": "running", "state_label_cs": "Běží"}},
     ],
     "agent_tables": [{"id": "codex-quota:providers", "kind": "quota", "title": "Kvóty", "anchor": "kvoty",
-                      "rows": [{"id": "claude", "name": "Claude", "anchor": "kvota-claude", "age": 30, "cells": {
+                      "rows": [{"id": "claude", "name": "Claude", "vendor": "anthropic", "anchor": "kvota-claude", "age": 30, "cells": {
                           "w": {"bars": [{"label": "5h", "percent": 40, "reset_at": 1793440000,
                                           "reset_label": "12:00"}]}}}]}],
     "resets": [{"source": "Claude", "label": "5h", "reset_at": 1793440000, "reset_label": "12:00", "percent": 40}],
@@ -51,6 +51,12 @@ const w=dom.window,d=w.document,sleep=ms=>new Promise(r=>setTimeout(r,ms)),o={};
 (async()=>{
   await sleep(300);
   const row=n=>d.querySelector(`#agenti tr[data-key="r:${n}"]`);
+  o.logo=row('Cursor').querySelector('.agent-provider-logo').getAttribute('src');
+  o.fallback=w.providerMark('unknown','Custom Provider');
+  o.prototypeVendor=w.providerLogo('__proto__','Unknown');
+  o.untrusted=w.providerMark('https://evil.example/logo','<Bad> Vendor');
+  o.logoMap=[['anthropic','Claude'],['anthropic','Hermes'],['openai','Codex'],['google','Vertex AI'],['google','Antigravity'],['other','GitHub Actions']].map(x=>w.providerLogo(...x));
+  o.quotaLogo=d.querySelector('.provider-avatar img').getAttribute('src');
   o.work=row('Cursor').querySelector('a.work-link').getAttribute('href');
   o.waiting=row('Claude').querySelector('.st-wait').textContent;
   o.services=d.querySelectorAll('#services .svc-item').length;
@@ -97,6 +103,12 @@ class IncrementalRenderJsdom(unittest.TestCase):
         self.assertGreaterEqual(len(lines), 2, r.stdout + r.stderr)
         o, errs = json.loads(lines[-2]), json.loads(lines[-1])
         self.assertEqual(errs, [])
+        self.assertEqual(o["logo"], "/static/logos/cursor.svg")
+        self.assertEqual(o["quotaLogo"], "/static/logos/claude.svg")
+        self.assertEqual(o["fallback"], "CP")
+        self.assertIsNone(o["prototypeVendor"])
+        self.assertEqual(o["untrusted"], "BV")
+        self.assertEqual(o["logoMap"], ["claude", "anthropic", "openai", "googlecloud", "googlegemini", "github"])
         self.assertEqual(o["work"], "https://github.com/o/r/issues/12")
         self.assertIn("Čeká na vstup", o["waiting"])
         self.assertEqual(o["services"], 1)

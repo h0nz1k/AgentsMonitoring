@@ -1,12 +1,12 @@
 {
-  "content_id": "a8653402bdc924572dfaa1ee26b750c69aca92b38e2e2b3e13f836b4f2e5b5c5",
+  "content_id": "82d3fb2c2f91d9b3f1c11f69ee2541990d214bce8677e7c817487b6b570ff708",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
     "alerts.py": "5b47a16011eb3cd52f9765a94bc7466363005cf142c5a1c45675465b8190b7a9",
     "bridges.py": "9525ab9ad7c86f9d0e06ee44c1ee9558ab88331c088a21361fbcc1e86f815540",
     "config.py": "060ab5d487db1233aadc47d9582fe28ac75db06db0ee869a5cc029b0253a3cfe",
-    "dashboard.py": "4b764d9599d3691fa22a05f4ba891b8efac9a02a85edf71fc14cb9c14d4777b1",
+    "dashboard.py": "edf9795fbf6357af413e823a3a43219e978dbb942e35520aa54b6ac908123fe3",
     "db.py": "470bafc161d24ac1bea302af0873ebf2e596a8ce77796cb29e79189bb2d1c5cf",
     "detect.py": "38d9802e9f005ba82c9ff47a70f5ac441ab82f79f3d386cad72e14285cbdd23b",
     "dialogs.py": "690cf9a5fb439809329a8054d74de32cca192b67d6e931926762f345812b2b66",
@@ -23,7 +23,15 @@
     "quota.py": "70305b7cfbdc78f48fc85299170b77c8382af79e9a9024786d0ecde478339b9c",
     "restarter.py": "90e18202d5360798ac8a9bba956cf5a11f7475248941674cc1fde20a0456ab91",
     "service.py": "009e48bef7b9bc705b42b32bb6aeecb8ed5979c3104a01498e3a9a5bbcf8763c",
-    "static/tailwind.js": "176e894661aa9cdc9a5cba6c720044cbbf7b8bd80d1c9a142a7c24b1b6c50d15",
+    "static/dashboard.css": "f2b81162acaf4d1bc12f3c0f6794676a42eb172d699ad3b79d9ee3440aa660b7",
+    "static/logos/LICENSE.md": "9d42b70e93b6ff0d4b0972e9a68516c35bbd7f5883ce0b776a736196d8dc9139",
+    "static/logos/anthropic.svg": "1cc599f6ebce2016dc388cf84e54a52c6b13487655c7e243554d654c7bce1882",
+    "static/logos/claude.svg": "2d6fda79eb18ddccca35b799eeb3cece0dfabc22520ce3b10abd25668df9fa93",
+    "static/logos/cursor.svg": "71572a9be192cc069ec22b48d785e61d754eeed7edb7d082d615f6d5620f70ec",
+    "static/logos/github.svg": "3bf8cceead820aec50d4ee825a3fd02c5a1cd6665cc9cf4cbf3d9c8861a204bb",
+    "static/logos/googlecloud.svg": "534a0359c2784e152f5c88ce64a56976036d7336c7831775c995977fd3432713",
+    "static/logos/googlegemini.svg": "a6228d8846040401e941a39ed17459785e8324dbb7b870ce84233c9b3e9863a0",
+    "static/logos/openai.svg": "2b4a04ddc2395b20d168694d3850ce2050a702c4a0cdeb4d8b31b9a970481a8c",
     "status.py": "03f98847add6fad24e51760f68bccf38c0f2bebb58fe541122e3d2b83d94d2da",
     "uninstaller.py": "c149b57897c91322abcfbf3a41e47b1fd37127212f0f6f9de5f9813af14a5b26",
     "updater.py": "e5f307f0d5eaac5f29359b90ddd7b0e183906b66df65f9c4c494a0c2220b34f2",
@@ -31,6 +39,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "v0.3.14-plugin-banner",
+  "release": "v0.3.14-provider-logos-dashboard-performance",
   "version": "0.3.14"
 }

@@ -6,11 +6,13 @@ from agentsmon import dashboard  # noqa: E402
 
 
 class Hardening(unittest.TestCase):
-    def test_page_loads_tailwind_from_the_package_not_a_cdn(self):
-        self.assertIn('src="/static/tailwind.js"', dashboard.PAGE)
+    def test_page_loads_static_css_from_package(self):
+        self.assertIn('href="/static/dashboard.css"', dashboard.PAGE)
+        self.assertNotIn('src="/static/tailwind.js"', dashboard.PAGE)
         self.assertNotIn("cdn.tailwindcss.com", dashboard.PAGE)
-        self.assertGreater(len(dashboard._STATIC_TAILWIND), 100_000)
-        self.assertTrue(dashboard._STATIC_TAILWIND.lstrip().startswith(b"(()=>") or b"tailwind" in dashboard._STATIC_TAILWIND[:2000].lower())
+        css, ctype = dashboard._STATIC_ASSETS["/static/dashboard.css"]
+        self.assertIn(b"tailwindcss v3.4.17", css)
+        self.assertEqual(ctype, "text/css; charset=utf-8")
 
     def test_off_loopback_without_auth_refuses_to_start(self):
         with self.assertRaises(SystemExit):

@@ -23,4 +23,4 @@ agentsmon = "agentsmon.__main__:main"
 packages = ["agentsmon"]
 
 [tool.setuptools.package-data]
-agentsmon = ["static/*.js", "core-manifest.json"]
+agentsmon = ["static/*.css", "static/logos/*.svg", "static/logos/LICENSE.md", "core-manifest.json"]

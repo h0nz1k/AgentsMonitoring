@@ -47,7 +47,7 @@ async def verify(args):
             elif self.path=='/reference' and args.reference_page:
                 body=args.reference_page.read_text().replace('POLL','3600').encode();kind='text/html'
             elif self.path=='/api/state': body=json.dumps(payload).encode();kind='application/json'
-            elif self.path=='/static/tailwind.js': body=dashboard._STATIC_TAILWIND;kind='application/javascript'
+            elif self.path in dashboard._STATIC_ASSETS: body,kind=dashboard._STATIC_ASSETS[self.path]
             else: self.send_error(404); return
             self.send_response(200);self.send_header('Content-Type',kind+'; charset=utf-8')
             self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
