@@ -12,12 +12,12 @@ class OverallWhileLoading(unittest.TestCase):
         self.assertEqual(ov["level"], "loading")
         self.assertNotIn("Vše běží", ov["summary_cs"])
 
-    def test_loaded_or_stale_data_uses_normal_level(self):
+    def test_partial_tables_cannot_claim_overall_ok(self):
         _, ov = dashboard.compute_attention({"plugin_loading": False, "agent_tables": [], "agents": [], "services": []})
         self.assertEqual(ov["level"], "ok")
         _, ov = dashboard.compute_attention({"plugin_loading": True, "agent_tables": [{"id": "t", "rows": []}],
                                              "agents": [], "services": []})
-        self.assertNotEqual(ov["level"], "loading")
+        self.assertEqual(ov["level"], "loading")
 
     def test_ui_has_loading_ring(self):
         self.assertIn('lv==="loading"', dashboard.INDEX_HTML if hasattr(dashboard, "INDEX_HTML") else
@@ -35,16 +35,16 @@ class LoadingBanner(unittest.TestCase):
 class CacheSignature(unittest.TestCase):
     def test_latency_change_keeps_fresh_cache(self):
         cfg = {"modules_dir": "/nonexistent-agentsmon-test"}
-        snap = {"tables": [{"id": "t"}]}
-        with patch.multiple(plugins, _manager=None, _signature=None, _cache=None, _refreshing=False):
-            plugins.manager(cfg)
+        with patch.multiple(plugins, _manager=None, _signature=None):
+            manager = plugins.manager(cfg)
             a1 = [{"id": "a", "name": "A", "alive": True, "latency_ms": 10, "age": 5}]
             a2 = [{"id": "a", "name": "A", "alive": True, "latency_ms": 99, "age": 9}]
-            sig = __import__("json").dumps([{k: v for k, v in a.items() if k in plugins.PUBLIC_FIELDS
-                                             and k not in ("age", "latency_ms")} for a in a1], sort_keys=True)
-            plugins._cache = (sig, time.monotonic(), snap)
+            from types import SimpleNamespace
+            manager.plugins = [SimpleNamespace(id="fixture", version="1")]
+            sig = __import__("json").dumps([{"id": "a", "name": "A", "alive": True}], sort_keys=True)
+            manager._snapshots["fixture"] = (sig, time.monotonic(), {"tables": [{"id": "t"}]})
             with patch.object(plugins.threading, "Thread") as th:
-                self.assertIs(plugins.collect(cfg, a2), snap)
+                self.assertEqual(plugins.collect(cfg, a1)['tables'], plugins.collect(cfg, a2)['tables'])
                 th.assert_not_called()
 
 

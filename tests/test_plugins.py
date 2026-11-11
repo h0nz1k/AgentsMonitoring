@@ -106,31 +106,26 @@ class PluginContract(unittest.TestCase):
     def test_http_collection_is_nonblocking_and_stale_cache_cannot_stay_green(self):
         from agentsmon import plugins
         cfg=self.plugin('hang',"import time\ndef collect(ctx, settings):\n time.sleep(30)\n",timeout_seconds=.2)
-        with patch.multiple(plugins,_manager=None,_signature=None,_cache=None,_refreshing=False):
+        with patch.multiple(plugins,_manager=None,_signature=None):
+            manager=plugins.manager(cfg)
             start=time.monotonic();data=plugins.collect(cfg,[])
             self.assertLess(time.monotonic()-start,.15)
             self.assertEqual(data['errors'],[])
             self.assertTrue(data['loading'])
             deadline=time.monotonic()+3
-            while plugins._refreshing and time.monotonic()<deadline: time.sleep(.02)
+            while manager._pending and time.monotonic()<deadline: time.sleep(.02)
             data=plugins.collect(cfg,[])
             self.assertIn('timed out',data['errors'][0]['detail'])
             self.assertFalse(data.get('loading',False))
-            # 31 s old: shown, but visibly stale and never actionable while the refresh runs.
             row={'id':'r','name':'R','alive':True,'row_actions':[{'id':'reset','label':'Reset'}]}
-            plugins._cache=('',time.monotonic()-31,{'tables':[{'up':True,'rows':[row]}],'patches':[{'row_actions':[1]}]})
+            snapshot={'tables':[{'up':True,'rows':[row]}],'patches':[{'row_actions':[1]}]}
+            manager._snapshots['hang']=('',time.monotonic()-31,snapshot)
             data=plugins.collect(cfg,[])
-            self.assertTrue(data['loading'])
             self.assertTrue(data['tables'][0]['stale'])
-            self.assertIn('Aktualizuji', data['tables'][0]['note'])
+            self.assertIn('Aktualizuji',data['tables'][0]['note'])
             self.assertNotIn('row_actions',data['tables'][0]['rows'][0])
             self.assertTrue(data['tables'][0]['rows'][0]['actions_locked'])
             self.assertNotIn('row_actions',data['patches'][0])
-            self.assertIn('row_actions',plugins._cache[2]['tables'][0]['rows'][0], 'cache itself untouched')
-            while plugins._refreshing and time.monotonic()<deadline: time.sleep(.02)
-            # Older than MAX_STALE_SECONDS: no plugin data at all rather than old numbers.
-            plugins._cache=('',time.monotonic()-plugins.MAX_STALE_SECONDS-1,{'tables':[{'up':True}]})
-            data=plugins.collect(cfg,[])
-            self.assertFalse(data['tables'])
-            self.assertTrue(data['loading'])
-            while plugins._refreshing and time.monotonic()<deadline: time.sleep(.02)
+            self.assertIn('row_actions',snapshot['tables'][0]['rows'][0])
+            manager._snapshots['hang']=('',time.monotonic()-601,snapshot)
+            self.assertFalse(plugins.collect(cfg,[])['tables'])

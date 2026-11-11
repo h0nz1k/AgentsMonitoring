@@ -125,7 +125,8 @@ class RetestRegressions(unittest.TestCase):
             self.assertTrue((bindir / 'agentsmon').is_file())
 
     def test_loading_is_neutral_and_expired_rows_and_actions_are_removed(self):
-        manager = SimpleNamespace(plugins=['fixture'])
+        manager = plugins.Manager({'modules_dir': '/nonexistent-fixture'})
+        manager.plugins = [SimpleNamespace(id='fixture', version='1')]
         stale = {'tables': [{'up': True, 'rows': [{'row_actions': [{'id': 'reload'}]}]}],
                  'patches': [{'row_id': 'old'}], 'columns': [{'id': 'old'}], 'errors': []}
         expired = ('old', time.monotonic() - plugins.MAX_STALE_SECONDS - 1, stale)
@@ -133,7 +134,7 @@ class RetestRegressions(unittest.TestCase):
             with self.subTest(case=name), \
                     patch.object(plugins, 'manager', return_value=manager), \
                     patch.object(plugins.threading.Thread, 'start'), \
-                    patch.multiple(plugins, _cache=cache, _refreshing=False):
+                    patch.object(manager, '_snapshots', {'fixture': cache} if cache else {}):
                 data = plugins.collect({}, [])
                 self.assertEqual(data['tables'], [])
                 self.assertEqual(data['patches'], [])
@@ -144,7 +145,7 @@ class RetestRegressions(unittest.TestCase):
         # the last snapshot is shown, flagged stale, and never actionable.
         with patch.object(plugins, 'manager', return_value=manager), \
                 patch.object(plugins.threading.Thread, 'start'), \
-                patch.multiple(plugins, _cache=('old', time.monotonic() - 31, stale), _refreshing=False):
+                patch.object(manager, '_snapshots', {'fixture': ('old', time.monotonic() - 31, stale)}):
             data = plugins.collect({}, [])
             self.assertTrue(data['loading'])
             self.assertEqual(data['errors'], [])

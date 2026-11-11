@@ -393,3 +393,17 @@ Node/npm are maintainer tools only, not installation or runtime dependencies.
 Keep conditional utility class names complete so the content scanner finds them.
 Static assets use ETag revalidation (`public, no-cache`), so updates appear immediately;
 state responses use `private, no-cache` and authenticated conditional requests.
+
+The dashboard answers `/api/state` immediately, including during startup. It refreshes state in
+background threads and keeps an atomic, mode-0600 `$AGENTSMON_STATE/state-snapshot.json`
+with the same public data as the API (no dashboard credentials). A disk snapshot is usable for
+15 minutes; it is marked stale, its plugin actions are disabled and overall status stays loading
+until the first live build finishes. In-memory snapshots remain usable for five minutes, with
+`state_age_seconds` and a quiet “aktualizuji…” indicator after 30 seconds. Corrupt or expired
+snapshots fall back to a loading placeholder. Actions invalidate pre-action builds and cache.
+
+Plugins publish independently: each has its own loading/error state and last good result.
+During refresh/failure, results younger than ten minutes stay visible, marked stale and without
+row actions. A slow plugin cannot hold up another plugin's publication or next refresh. The UI
+polls every second while anything is loading, then returns to the configured interval; hidden
+tabs and manual pause still suspend polling.
