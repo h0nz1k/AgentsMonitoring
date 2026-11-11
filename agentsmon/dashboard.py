@@ -2207,6 +2207,9 @@ def _state() -> bytes:
 STATE_FRESH_SECONDS = 4.0
 STATE_MAX_AGE_SECONDS = 300.0
 SNAPSHOT_MAX_AGE_SECONDS = 900.0
+#: Idle background rebuild cadence. Open browsers poll and trigger fresher rebuilds themselves;
+#: a 1 s loop would rebuild the state (~2 s CPU) and re-run plugin subprocesses non-stop on a shared host.
+BACKGROUND_REFRESH_SECONDS = 30
 _state_lock = threading.Lock()
 _state_cache: tuple | None = None
 _state_building = False
@@ -3005,7 +3008,7 @@ def serve(host: str, port: int) -> None:
     quota.start()
     alerts.start()
     workqueue.start(cfg)      # GitHub/supervisor work queue: background cache, no-op when disabled
-    threading.Thread(target=_quota_loop, args=(threading.Event(), 1), daemon=True,
+    threading.Thread(target=_quota_loop, args=(threading.Event(), BACKGROUND_REFRESH_SECONDS), daemon=True,
                      name="agentsmon-quota").start()
 
     write_pidfile()
