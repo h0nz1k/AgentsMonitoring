@@ -12,6 +12,8 @@ UI text is Czech (lang=cs, Intl cs-CZ).
 from __future__ import annotations
 
 import base64
+import gzip
+from functools import lru_cache
 import ipaddress
 import re
 import unicodedata
@@ -504,7 +506,6 @@ PAGE = r"""<!DOCTYPE html><html lang="cs"><head>
 <meta name="color-scheme" content="light dark">
 <title>Agenti</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
-<script src="/static/tailwind.js"></script>
 <style>
 :root{--gap:0.75rem;--touch:44px}
 .bar{transition:opacity .15s ease}.bar:hover{opacity:.65}
@@ -821,7 +822,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .overview-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.overview-chip{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--line);color:var(--muted);font-size:13px;text-decoration:none}
 .attn,.attn.critical{background:transparent;border:0;padding:0;margin-bottom:24px}.attn h2{font-size:18px;margin-bottom:12px;font-weight:700}.attn-list{display:grid;gap:12px}.attn-item{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--card)}.attn-item+.attn-item{border-top:1px solid var(--line);margin:0}.attn-item.critical{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:linear-gradient(110deg,color-mix(in srgb,var(--bad) 8%,var(--card)),var(--card))}.attn-item.warning{background:linear-gradient(110deg,color-mix(in srgb,var(--warn) 8%,var(--card)),var(--card))}.attn-ico{font-size:20px;flex:0 0 28px}.attn-text{flex:1;min-width:180px;color:var(--tx)!important;font-size:14px}.attn-text b{font-weight:600}.attn-text p{font-size:13px;color:var(--muted)}.attn-link{display:inline-flex;align-items:center;min-height:44px;color:var(--info);font-size:13px}.attn-more{color:var(--muted)}
 .svc-head{border:0!important;background:transparent!important;padding:4px 0!important;gap:8px;margin-bottom:12px}.svc-head h2{font-size:18px}.svc-head .agents-count{font-size:12px}.svc-head .svc-dot{display:none}
-.quota-cards{display:grid;grid-template-columns:1fr;gap:16px}.quota-card{padding:18px;border-radius:20px;background:var(--card);border-color:var(--line);gap:8px}.qc-head{display:flex;align-items:center;flex-wrap:nowrap;gap:10px}.provider-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;flex:0 0 auto;background:linear-gradient(135deg,#455dc1,#8b63c4);color:#fff;font-size:14px;font-weight:700}.provider-avatar.anthropic{background:linear-gradient(135deg,#b65737,#96614d)}.provider-avatar.openai{background:linear-gradient(135deg,#19745c,#348879)}.provider-avatar.google{background:linear-gradient(135deg,#3c66ba,#7e58bb)}.provider-name{flex:1;min-width:0}.qc-name{display:block;font-size:16px;line-height:1.3;font-weight:650}.plan-label{display:block;color:var(--muted);font-size:12px}.provider-status{font-size:12px;font-weight:600;border-radius:9px;padding:5px 7px;background:var(--track);max-width:112px;text-align:center;line-height:1.3}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}.qc-users,.quota-legend{color:var(--muted);font-size:12px}.quota-legend{margin-top:4px}.qc-wins{display:block}.limit-row{display:flex;align-items:center;gap:14px;padding:14px 0}.limit-row+.limit-row{border-top:1px solid var(--line)}.limit-ring{width:72px;height:72px;flex:0 0 72px;border-radius:50%;background:conic-gradient(currentColor var(--remaining),var(--track) 0);position:relative;display:grid;place-items:center}.limit-ring::before{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.limit-ring span{position:relative;color:var(--tx);font-size:16px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}.limit-copy{min-width:0;flex:1}.limit-copy b{font-size:14px;color:var(--tx)}.limit-reset{font-size:12px;color:var(--muted);margin-top:3px}.verdict{font-size:12px;line-height:1.5;margin-top:4px}.sub-limit{margin:0 0 12px 36px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:12px}.credit-meta{padding:14px;background:var(--bg);border-radius:12px;font-size:13px;color:var(--muted)}.credit-pace{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.credit-pace b{display:block;color:var(--tx);font-size:14px}.pod{color:var(--muted)}.pod>summary{display:flex;align-items:center;color:var(--info)}
+.quota-cards{display:grid;grid-template-columns:1fr;gap:16px}.quota-card{padding:18px;border-radius:20px;background:var(--card);border-color:var(--line);gap:8px}.qc-head{display:flex;align-items:center;flex-wrap:nowrap;gap:10px}.provider-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;flex:0 0 auto;background:linear-gradient(135deg,#455dc1,#8b63c4);color:#fff;font-size:14px;font-weight:700}.provider-avatar.anthropic{background:linear-gradient(135deg,#b65737,#96614d)}.provider-avatar.openai{background:linear-gradient(135deg,#19745c,#348879)}.provider-avatar.google{background:linear-gradient(135deg,#3c66ba,#7e58bb)}.provider-logo{display:inline-block;width:24px;height:24px;object-fit:contain;filter:invert(1)}.agent-provider-fallback{margin-right:5px}.agent-provider-logo{display:inline-block;width:14px;height:14px;object-fit:contain;vertical-align:-2px;margin-right:5px}:root[data-theme="dark"] .agent-provider-logo{filter:invert(1)}.provider-name{flex:1;min-width:0}.qc-name{display:block;font-size:16px;line-height:1.3;font-weight:650}.plan-label{display:block;color:var(--muted);font-size:12px}.provider-status{font-size:12px;font-weight:600;border-radius:9px;padding:5px 7px;background:var(--track);max-width:112px;text-align:center;line-height:1.3}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}.qc-users,.quota-legend{color:var(--muted);font-size:12px}.quota-legend{margin-top:4px}.qc-wins{display:block}.limit-row{display:flex;align-items:center;gap:14px;padding:14px 0}.limit-row+.limit-row{border-top:1px solid var(--line)}.limit-ring{width:72px;height:72px;flex:0 0 72px;border-radius:50%;background:conic-gradient(currentColor var(--remaining),var(--track) 0);position:relative;display:grid;place-items:center}.limit-ring::before{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.limit-ring span{position:relative;color:var(--tx);font-size:16px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}.limit-copy{min-width:0;flex:1}.limit-copy b{font-size:14px;color:var(--tx)}.limit-reset{font-size:12px;color:var(--muted);margin-top:3px}.verdict{font-size:12px;line-height:1.5;margin-top:4px}.sub-limit{margin:0 0 12px 36px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:12px}.credit-meta{padding:14px;background:var(--bg);border-radius:12px;font-size:13px;color:var(--muted)}.credit-pace{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.credit-pace b{display:block;color:var(--tx);font-size:14px}.pod{color:var(--muted)}.pod>summary{display:flex;align-items:center;color:var(--info)}
 .bg-white{background:var(--card)!important}.border-slate-100,.border-slate-200{border-color:var(--line)!important}.text-slate-400,.text-slate-300,.text-slate-500,.text-slate-600,.qc-users,.win-type,.win-fc,.q-who,.q-age,.q-extra,.svc-note,.svc-lat{color:var(--muted)!important}.text-slate-700,.text-slate-800,.attn-text,.q-title a,.q-title .q-tt{color:var(--tx)!important}
 .svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}
 .layout{display:flex;flex-direction:column;gap:8px}.col-main,.col-side{width:100%;min-width:0}#footer{font-size:12px;margin-top:24px;color:var(--muted)!important}
@@ -862,6 +863,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .queue-more{min-height:44px;padding:8px 14px;margin-top:12px;border:1px solid var(--line);border-radius:12px;color:var(--info);background:var(--card);font-size:13px}.q-title a{min-height:44px!important}.q-item{padding:12px 14px}.q-extra .pod>summary{min-height:44px;line-height:44px}.q-extra{display:flex;align-items:center;gap:10px}.q-extra>span{white-space:nowrap}.q-extra .pod{width:auto}.agent-rows{gap:8px}.agent-rows tr{gap:0 12px!important}.agent-rows td:nth-child(3){grid-column:1;grid-row:2;align-self:start}.agent-rows td:nth-child(4){grid-column:1;grid-row:3;align-self:start}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;align-self:start;max-width:100%}.agent-rows td:last-child{grid-column:2;grid-row:4;min-height:44px}.agent-rows .acct-chip{flex-wrap:nowrap!important;border-radius:10px;padding:0 8px;max-width:180px;gap:6px}.agent-rows .acct-name{max-width:100px}.agent-rows .acct-win{white-space:nowrap}.agent-rows td:first-child{min-height:44px;display:flex;align-items:center}.agent-rows td:nth-child(2){align-self:center}.agent-rows td:nth-child(3),.agent-rows td:nth-child(4){line-height:22px}.agent-rows td:last-child:empty{display:none}.agent-rows td:nth-child(5):last-child{grid-row:2 / span 2}.q-link,.work-link{color:var(--info)}
 @media(min-width:1100px){.agent-rows tr{grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center}.agent-rows td:first-child{grid-column:1;grid-row:1}.agent-rows td:nth-child(2){grid-column:2;grid-row:1}.agent-rows td:nth-child(3){grid-column:1;grid-row:2}.agent-rows td:nth-child(4){grid-column:1;grid-row:3}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2}.agent-rows td:last-child{grid-column:3;grid-row:1 / span 3;display:flex;flex-direction:column;align-self:center}.agent-rows .agent-act{min-width:44px}.agent-rows .acct-chip{max-width:180px}.agent-rows .acct-name{max-width:95px}}
 </style>
+<link rel="stylesheet" href="/static/dashboard.css">
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-2 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50" role="status" aria-live="polite">&nbsp;</div>
 <div id="app" class="mx-auto px-5 py-6">
@@ -939,6 +941,20 @@ const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emera
   "google":"bg-violet-100 text-violet-700", "gold":"bg-amber-100 text-amber-700",
   "red":"bg-rose-100 text-rose-700", "cursor":"bg-sky-100 text-sky-700",
   "other":"bg-slate-100 text-slate-600" };
+// Only fixed local paths may become image URLs; unknown providers keep initials.
+function providerLogo(vendor,name){
+  const text=String(name||"");
+  if(vendor==="other" && /github/i.test(text)) return "github";
+  if(vendor==="google") return /vertex|cloud/i.test(text)?"googlecloud":"googlegemini";
+  if(vendor==="anthropic") return /claude/i.test(text)?"claude":"anthropic";
+  return vendor==="openai"||vendor==="cursor"?vendor:null;
+}
+function providerMark(vendor,name,small=false){
+  const logo=providerLogo(vendor,name);
+  if(logo) return `<img class="${small?"agent-provider-logo":"provider-logo"}" src="/static/logos/${logo}.svg" width="${small?14:24}" height="${small?14:24}" alt="" aria-hidden="true">`;
+  const initials=esc(String(name||vendor||"?").replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase());
+  return small?`<span class="agent-provider-fallback" aria-hidden="true">${initials}</span>`:initials;
+}
 const NAME_BG = { "red":"bg-rose-100", "gold":"bg-amber-100", "green":"bg-emerald-100", "blue":"bg-sky-100" };
 const LOCALE="cs-CZ";
 const ROLE=document.body.dataset.role||"admin";   // server-rendered; the server enforces it anyway
@@ -1394,7 +1410,7 @@ function renderQuotaCard(r,table){
   const acts=renderActions(r,table,{lock:false});
   tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
   return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
-    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${esc(r.name.replace(/[^A-Za-zÀ-ž0-9 ]/g,"").split(/ +/).map(n=>n[0]).join("").slice(0,2).toUpperCase())}</div><div class="provider-name"><span class="qc-name">${esc(/Vertex/i.test(r.name)?"Vertex AI · kredit 300 USD":czLabel(r.name))}</span><span class="plan-label">${esc(/Vertex/i.test(r.name)?"Zkušební kredit":czLabel(plan)||"Účet poskytovatele")}</span></div>`+
+    `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${providerMark(r.vendor,r.name)}</div><div class="provider-name"><span class="qc-name">${esc(/Vertex/i.test(r.name)?"Vertex AI · kredit 300 USD":czLabel(r.name))}</span><span class="plan-label">${esc(/Vertex/i.test(r.name)?"Zkušební kredit":czLabel(plan)||"Účet poskytovatele")}</span></div>`+
     `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(risk?"Při současném tempu dojde před obnovou":f.reason)}">${esc(status)}</span></div>`+
     (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>czLabel(x.b.label||winType(x.b,x.c))).join(", "))}</p>`:"")+
     `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
@@ -1530,7 +1546,7 @@ function renderAgents(root, agents, summary=null, columns=[]){
     const recovery=a.restart_warning?`<br><span class="text-xs text-amber-600" title="${esc(a.restart_warning)}">⚠ Nová konverzace</span>`:"";
     const html=
       `<td class="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">${nameCell}${tg}${recovery}</td>`+
-      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${esc(czLabel(a.label==="cursor_json"?"Cursor":a.label))}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
+      `<td class="px-2 py-1.5 whitespace-nowrap"><span title="${esc(a.account?'Účet: '+a.account:a.label)}" class="inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tcls}">${providerMark(a.vendor,a.name,true)}${esc(czLabel(a.label==="cursor_json"?"Cursor":a.label))}</span>${workHtml}${a.metadata_error?'<br><span class="text-xs text-amber-600">Neúplná data</span>':""}</td>`+
 
       `<td class="px-2 py-1.5 text-slate-500 text-xs whitespace-nowrap">${a.age!=null?"běží "+fmtDuration(a.age):""}</td>`+
       `<td class="px-2 py-1.5"><span title="${esc(fmtIsoText(statusTip))}" class="inline-flex items-center gap-1.5 whitespace-nowrap ${stCls}">${stIco}<span class="flex flex-col">${esc(friendlyDetail(statusTxt)|| (ok?"Běží":"Nečinný"))}</span></span>${longDetail?detailsBlock(a.status_detail,"a:"+(root.dataset.svc||"")+":"+(a.id||a.name)):""}</td>`+
@@ -2816,7 +2832,17 @@ def _probe_loop(stop: threading.Event) -> None:
         stop.wait(int(config.load().get("probe", {}).get("interval_seconds", 60)))
 
 
-_STATIC_TAILWIND = (Path(__file__).parent / "static" / "tailwind.js").read_bytes()
+_STATIC_ROOT = Path(__file__).parent / "static"
+_STATIC_ASSETS = {"/static/dashboard.css": ((_STATIC_ROOT / "dashboard.css").read_bytes(),
+                                              "text/css; charset=utf-8")}
+_STATIC_ASSETS.update({"/static/logos/" + p.name: (p.read_bytes(), "image/svg+xml")
+                       for p in (_STATIC_ROOT / "logos").glob("*.svg")})
+
+
+@lru_cache(maxsize=32)
+def _encoded_resource(body, compressed):
+    return (gzip.compress(body, mtime=0) if compressed else body,
+            'W/"' + hashlib.sha256(body).hexdigest() + '"')
 
 
 def _loopback(host: str) -> bool:
@@ -2931,7 +2957,7 @@ def make_server(host: str, port: int, cfg: dict):
             path = urlsplit(getattr(self, "path", "") or "").path
             # The page embeds the role/identity and the action JS, so a cached copy (e.g. a phone
             # tab left open on the old LAN address) must never be reused.
-            if path.startswith("/api/") or path in ("/metrics", "/", "/index.html"):
+            if (path.startswith("/api/") and not getattr(self, "_cache_revalidate", False)) or path in ("/metrics", "/", "/index.html"):
                 self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
@@ -2940,10 +2966,28 @@ def make_server(host: str, port: int, cfg: dict):
             self.send_header("Content-Type", ctype)
             for k, v in extra:
                 self.send_header(k, v)
-            self.send_header("Content-Length", str(len(body)))
+            if status != 304:
+                self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
+
+        def _resource(self, body, ctype, cache=None):
+            accepts = self.headers.get("Accept-Encoding", "")
+            compressed = any(part.split(";", 1)[0].strip().lower() == "gzip"
+                             and not re.search(r";\s*q=0(?:\.0*)?(?:\s|$)", part)
+                             for part in accepts.split(","))
+            body, etag = _encoded_resource(body, compressed)
+            extra = [("Vary", "Accept-Encoding")]
+            if compressed:
+                extra.append(("Content-Encoding", "gzip"))
+            if cache:
+                self._cache_revalidate = True
+                extra.extend((("Cache-Control", cache), ("ETag", etag)))
+                tags = self.headers.get("If-None-Match", "").split(",")
+                if any(t.strip().removeprefix("W/") in ("*", etag[2:]) for t in tags):
+                    return self._reply(304, b"", ctype, extra)
+            return self._reply(200, body, ctype, extra)
 
         def _denied(self):
             self.send_response(401)
@@ -3057,24 +3101,16 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
             elif self.path.startswith("/api/state"):
-                body = _cached_state()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
+                return self._resource(_cached_state(), "application/json", "private, no-cache")
             elif is_metrics:
                 body = metrics.render(_state_data()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):
-                body = self._page()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-            elif self.path == "/static/tailwind.js":
-                # Served from the package, not cdn.tailwindcss.com: a third party that can change
-                # a script running on this origin could drive the control endpoint (audit 2026-09-08).
-                body = _STATIC_TAILWIND
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript; charset=utf-8")
-                self.send_header("Cache-Control", "public, max-age=86400")
+                return self._resource(self._page(), "text/html; charset=utf-8")
+            elif urlsplit(self.path).path in _STATIC_ASSETS:
+                body, ctype = _STATIC_ASSETS[urlsplit(self.path).path]
+                return self._resource(body, ctype, "public, no-cache")
             else:
                 self.send_response(404)
                 self.send_header("Content-Length", "0")

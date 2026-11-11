@@ -380,3 +380,16 @@ stored as SHA-256 hashes. Restart commands and trusted plugins run as your user.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Dashboard CSS is generated with Tailwind CSS **3.4.17** and committed; browsers never
+compile it. After changing utility classes in `agentsmon/dashboard.py`, regenerate:
+
+```sh
+npm install --prefix /tmp/agentsmon-css --no-audit --no-fund tailwindcss@3.4.17
+scripts/generate_dashboard_css.sh /tmp/agentsmon-css/node_modules/.bin/tailwindcss
+```
+
+Node/npm are maintainer tools only, not installation or runtime dependencies.
+Keep conditional utility class names complete so the content scanner finds them.
+Static assets use ETag revalidation (`public, no-cache`), so updates appear immediately;
+state responses use `private, no-cache` and authenticated conditional requests.
