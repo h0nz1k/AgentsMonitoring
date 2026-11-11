@@ -3,7 +3,7 @@
 Trusted administrator-installed code, NOT an OS security sandbox. No dashboard
 auth/config object is handed to a plugin. Every plugin has its own settings.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 from dataclasses import dataclass
 import importlib.metadata
@@ -299,22 +299,92 @@ def validate_result(plugin, value):
 class Manager:
     def __init__(self,cfg):
         self.plugins=discover(cfg)
+        self._snapshot_lock=threading.RLock()
+        self._snapshots={}
+        self._pending=set()
+        self._errors={}
         self._action_locks={p.id:threading.Lock() for p in self.plugins}
 
-    def collect(self,agents):
-        context={'api_version':1,'features':list(FEATURES),'agents':[{k:v for k,v in a.items() if k in PUBLIC_FIELDS} for a in agents]}
-        result={k:[] for k in ('tables','columns','patches','hidden_sessions','hidden_services','errors','plugins')}
-        def one(plugin):
-            try: return validate_result(plugin,invoke(plugin,'collect',context)),''
-            except subprocess.TimeoutExpired: return None,'Plugin timed out'
-            except Exception: return None,plugin.error or 'Plugin failed or returned invalid data'
+    def _one(self,plugin,context):
+        try: return validate_result(plugin,invoke(plugin,'collect',context)),''
+        except subprocess.TimeoutExpired: return None,'Plugin timed out'
+        except Exception: return None,plugin.error or 'Plugin failed or returned invalid data'
+
+    def collect(self,agents,publish=None):
+        """Blocking batch API; publish each validated result immediately, in completion order."""
+        context=self._context(agents)
+        result=self._empty()
+        signature=self._agent_signature(context)
+        with self._snapshot_lock:
+            self._pending.update(p.id for p in self.plugins)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for plugin,(data,error) in zip(self.plugins,pool.map(one,self.plugins)):
+            futures={pool.submit(self._one,p,context):p for p in self.plugins}
+            for future in as_completed(futures):
+                plugin=futures[future]
+                data,error=future.result()
+                with self._snapshot_lock:
+                    self._record(plugin,signature,data,error)
+                if publish: publish(plugin,data,error)
                 result['plugins'].append({'id':plugin.id,'version':plugin.version,'api_version':1,'error':error})
                 if error: result['errors'].append({'name':'Plugin '+plugin.id+' failed','detail':error})
                 else:
                     for key in data: result[key].extend(data[key])
         return result
+
+    @staticmethod
+    def _empty():
+        return {k:[] for k in ('tables','columns','patches','hidden_sessions','hidden_services','errors','plugins')}
+
+    @staticmethod
+    def _context(agents):
+        return {'api_version':1,'features':list(FEATURES),
+                'agents':[{k:v for k,v in a.items() if k in PUBLIC_FIELDS} for a in agents]}
+
+    @staticmethod
+    def _agent_signature(context):
+        return json.dumps([{k:v for k,v in a.items() if k not in ('age','latency_ms')}
+                           for a in context['agents']],sort_keys=True)
+
+    def _record(self,plugin,signature,data,error):
+        """Caller holds _snapshot_lock; successful publication never waits for sibling workers."""
+        if error: self._errors[plugin.id]=(time.monotonic(),error)
+        else:
+            self._snapshots[plugin.id]=(signature,time.monotonic(),data)
+            self._errors.pop(plugin.id,None)
+        self._pending.discard(plugin.id)
+
+    def snapshot(self,agents):
+        """Independent refresh and stale lifetime for every plugin. Never wait on a worker."""
+        context=self._context(agents)
+        signature=self._agent_signature(context)
+        now=time.monotonic()
+        with self._snapshot_lock:
+            result=self._empty()
+            result['loading']=False
+            for plugin in self.plugins:
+                pid=plugin.id
+                cached=self._snapshots.get(pid)
+                last=self._errors.get(pid)
+                fresh=cached and cached[0]==signature and now-cached[1]<10 and not last
+                retry=not last or now-last[0]>=10
+                if not fresh and pid not in self._pending and retry:
+                    self._pending.add(pid)
+                    def refresh(p=plugin):
+                        data,error=self._one(p,context)
+                        with self._snapshot_lock:
+                            self._record(p,signature,data,error)
+                    threading.Thread(target=refresh,daemon=True,name='agentsmon-plugin-'+pid).start()
+                loading=pid in self._pending
+                error=last[1] if last else ''
+                result['plugins'].append({'id':pid,'version':plugin.version,'api_version':1,
+                                          'loading':loading,'error':error})
+                result['loading'] |= loading
+                if error: result['errors'].append({'name':'Plugin '+pid+' failed','detail':error})
+                if cached and now-cached[1]<MAX_STALE_SECONDS:
+                    data=_stale_snapshot(cached[2],now-cached[1]) if loading or error else cached[2]
+                    for key in ('tables','columns','patches','hidden_sessions','hidden_services'):
+                        result[key].extend(copy.deepcopy(data.get(key,[])))
+            return result
 
     def action(self,table_id,row_id,action_id):
         matches=[p for p in self.plugins if table_id.startswith(p.id+':') and not p.error]
@@ -339,16 +409,14 @@ class Manager:
 _lock=threading.RLock()
 _manager=None
 _signature=None
-_cache=None
-_refreshing=False
 
 
 def manager(cfg):
-    global _manager,_signature,_cache
+    global _manager,_signature
     signature=json.dumps({k:cfg.get(k) for k in ('modules_dir','plugin_entry_points','usage_plugin')},sort_keys=True)
     with _lock:
         if _manager is None or signature!=_signature:
-            _manager=Manager(cfg); _signature=signature; _cache=None
+            _manager=Manager(cfg); _signature=signature
         return _manager
 
 
@@ -377,29 +445,4 @@ def _stale_snapshot(result,age):
 
 def collect(cfg,agents):
     """Never run or wait for plugins on the HTTP request thread."""
-    global _refreshing
-    with _lock:
-        m=manager(cfg)
-        # Volatile probe numbers (age, latency) must not invalidate the cache on every poll.
-        signature=json.dumps([{k:v for k,v in a.items() if k in PUBLIC_FIELDS and k not in ('age','latency_ms')}
-                              for a in agents],sort_keys=True)
-        if _cache and _cache[0]==signature and time.monotonic()-_cache[1]<10: return _cache[2]
-        if not _refreshing:
-            _refreshing=True
-            def refresh():
-                global _cache,_refreshing
-                try:
-                    result=m.collect(agents)
-                    with _lock:
-                        if m is _manager: _cache=(signature,time.monotonic(),result)
-                finally:
-                    with _lock: _refreshing=False
-            threading.Thread(target=refresh,daemon=True,name='agentsmon-plugins').start()
-        if _cache and time.monotonic()-_cache[1]<30: return _cache[2]
-        # Older snapshot: show it read-only and visibly stale instead of an empty, seemingly healthy page.
-        if _cache and time.monotonic()-_cache[1]<MAX_STALE_SECONDS:
-            return _stale_snapshot(_cache[2],time.monotonic()-_cache[1])
-        # No stale green row may remain actionable while refresh is stuck.
-        result={k:[] for k in ('tables','columns','patches','hidden_sessions','hidden_services','errors','plugins')}
-        result['loading']=bool(m.plugins)
-        return result
+    return manager(cfg).snapshot(agents)

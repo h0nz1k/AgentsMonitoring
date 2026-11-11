@@ -246,7 +246,9 @@ class CleanInstall(unittest.TestCase):
                 while time.monotonic()<deadline:
                     try:
                         with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/state',timeout=2) as r: data=json.load(r)
-                        break
+                        if not data.get('loading'):
+                            break
+                        time.sleep(.1)
                     except OSError: time.sleep(.1)
                 self.assertIsNotNone(data,'Clean HOME dashboard failed to start')
                 self.assertEqual(data['agent_tables'],[]); self.assertEqual(data['plugin_errors'],[])

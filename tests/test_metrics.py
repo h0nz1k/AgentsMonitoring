@@ -101,20 +101,19 @@ class Endpoint(unittest.TestCase):
 
 
 class QuotaLoop(unittest.TestCase):
-    def test_background_tick_waits_for_cold_plugin_cache(self):
-        waits = iter([False, False, False, True])        # interval, retry, retry, stop
-
+    def test_background_tick_keeps_state_cache_warm_without_browser(self):
+        waits = iter([False, False, True])
         seen = []
-
         class Stop:
+            def is_set(self):
+                return False
             def wait(self, seconds):
                 seen.append(seconds)
                 return next(waits)
-        snaps = iter([{"plugin_loading": True}, {"plugin_loading": True}, {"plugin_loading": False}])
-        with patch.object(dashboard, "_state_data", side_effect=lambda: next(snaps)) as sd:
-            dashboard._quota_loop(Stop(), interval=60)
-        self.assertEqual(sd.call_count, 3)
-        self.assertEqual(seen, [60, 3, 3, 60])            # quick retries only while plugins load
+        with patch.object(dashboard, "_cached_state") as cached:
+            dashboard._quota_loop(Stop(), interval=1)
+        self.assertEqual(cached.call_count, 3)
+        self.assertEqual(seen, [1, 1, 1])
 
 
 class StateForecast(unittest.TestCase):

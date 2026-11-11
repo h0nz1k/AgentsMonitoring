@@ -4,6 +4,13 @@
 
 - Dashboard: safe `restart_gateway` from a Telegram-lane outage (attention + lane service + LANA Hermes row), with step-up warning, Telegram getMe precheck, 10-minute cooldown, actions.jsonl audit, and post-restart lane watch.
 
+## v0.3.14-lazy-first-load (candidate)
+
+- Immediate nonblocking state replies with private atomic disk snapshots and background warm-up.
+- Independent plugin publication, loading/error states and read-only stale results.
+- Quota skeletons and adaptive polling; preserve incremental rendering and hidden-tab pause.
+- Readable Cursor badge, wrapping queue tabs, status-ring labels and SVG waiting icon.
+
 ## 0.3.14 (2026-10-25)
 
 - Persistent-agent quota cells are exactly two compact 5h/week gauges with accessible hover/keyboard/touch tooltips; 1920-wide layout uses up to 1480px.

@@ -26,6 +26,7 @@ import secrets
 import shutil
 import subprocess
 import threading
+import tempfile
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -862,6 +863,18 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 /* Compact rows share the same structure, including agents without quota data. */
 .queue-more{min-height:44px;padding:8px 14px;margin-top:12px;border:1px solid var(--line);border-radius:12px;color:var(--info);background:var(--card);font-size:13px}.q-title a{min-height:44px!important}.q-item{padding:12px 14px}.q-extra .pod>summary{min-height:44px;line-height:44px}.q-extra{display:flex;align-items:center;gap:10px}.q-extra>span{white-space:nowrap}.q-extra .pod{width:auto}.agent-rows{gap:8px}.agent-rows tr{gap:0 12px!important}.agent-rows td:nth-child(3){grid-column:1;grid-row:2;align-self:start}.agent-rows td:nth-child(4){grid-column:1;grid-row:3;align-self:start}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;align-self:start;max-width:100%}.agent-rows td:last-child{grid-column:2;grid-row:4;min-height:44px}.agent-rows .acct-chip{flex-wrap:nowrap!important;border-radius:10px;padding:0 8px;max-width:180px;gap:6px}.agent-rows .acct-name{max-width:100px}.agent-rows .acct-win{white-space:nowrap}.agent-rows td:first-child{min-height:44px;display:flex;align-items:center}.agent-rows td:nth-child(2){align-self:center}.agent-rows td:nth-child(3),.agent-rows td:nth-child(4){line-height:22px}.agent-rows td:last-child:empty{display:none}.agent-rows td:nth-child(5):last-child{grid-row:2 / span 2}.q-link,.work-link{color:var(--info)}
 @media(min-width:1100px){.agent-rows tr{grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center}.agent-rows td:first-child{grid-column:1;grid-row:1}.agent-rows td:nth-child(2){grid-column:2;grid-row:1}.agent-rows td:nth-child(3){grid-column:1;grid-row:2}.agent-rows td:nth-child(4){grid-column:1;grid-row:3}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2}.agent-rows td:last-child{grid-column:3;grid-row:1 / span 3;display:flex;flex-direction:column;align-self:center}.agent-rows .agent-act{min-width:44px}.agent-rows .acct-chip{max-width:180px}.agent-rows .acct-name{max-width:95px}}
+/* Round 3: readable badges, wrapping tabs and labels clear of the ring stroke. */
+.cursor-model{color:#075985;background:#e0f2fe}
+:root[data-theme="dark"] .cursor-model{color:#bae6fd;background:#0c4a6e}
+.q-tabs{flex-wrap:wrap!important;overflow:visible!important;max-width:100%;box-sizing:border-box}
+.q-tab{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.ring-center{inset:18%;min-width:0;text-align:center}
+.ring-center b{font-size:24px!important;line-height:1.1;max-width:100%;overflow-wrap:anywhere;white-space:normal}
+.ring-center span{font-size:11px;line-height:1.2;max-width:100%}
+.wait-ico svg{width:16px;height:16px;display:inline-block;vertical-align:middle}
+.state-updating{font-size:12px;color:var(--muted)}
+.quota-skeleton{min-height:180px;color:var(--muted);margin-bottom:16px}
+.skeleton-line{height:28px;border-radius:8px;background:var(--track);margin-top:18px}
 </style>
 <link rel="stylesheet" href="/static/dashboard.css">
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
@@ -878,7 +891,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
   <div id="attn-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div class="layout"><div class="col-main">
   <section class="overview" aria-label="Celkový stav">
-    <div class="hero-content"><div class="hero-top"><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
+    <div class="hero-content"><div class="hero-top"><span id="state-updating" class="state-updating" hidden>aktualizuji…</span><div id="status-ring" class="status-ring"></div><div class="hero-copy"><h2 id="overall-pill">Načítání…</h2><p id="overview-summary"></p></div></div>
     <p id="overview-info" class="overview-info"></p></div><aside id="hero-resets" aria-label="Nejbližší obnovy"></aside><div id="overview-chips" class="overview-chips"></div>
   </section>
   <section id="attention" class="attn mb-4" hidden aria-labelledby="attn-h">
@@ -939,7 +952,7 @@ const STATE = {
 };
 const VENDOR = { "anthropic":"bg-orange-100 text-orange-700", "openai":"bg-emerald-100 text-emerald-700",
   "google":"bg-violet-100 text-violet-700", "gold":"bg-amber-100 text-amber-700",
-  "red":"bg-rose-100 text-rose-700", "cursor":"bg-sky-100 text-sky-700",
+  "red":"bg-rose-100 text-rose-700", "cursor":"cursor-model",
   "other":"bg-slate-100 text-slate-600" };
 // Only fixed local paths may become image URLs; unknown providers keep initials.
 function providerLogo(vendor,name){
@@ -972,7 +985,7 @@ function fmtTime(u){return u?localWhen(u):"";}
 function fmtLat(ms){return ms==null?"–":(ms<1?"<1 ms":ms+" ms");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 const q=(r,s)=>r.querySelector(s);
-let paused=false, pollTimer=null;
+let paused=false, pollTimer=null, loadingState=true;
 let tipSeq=0, TIP_NS="g";   // tooltip ids: per-row namespace + counter → stable across polls
 let clockSkew=0;   // server time − browser time, so countdowns follow the host clock
 function nowSec(){ return Date.now()/1000+clockSkew; }
@@ -1526,7 +1539,7 @@ function renderAgents(root, agents, summary=null, columns=[]){
       :[longDetail?a.status:(a.status_detail||a.status),
       ok&&a.latency_ms!=null?`latence ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
     const stCls=waiting?"st-wait":a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
-    const stIco=waiting?`<span class="wait-ico" aria-hidden="true">✋</span>`:`<span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span>`;
+    const stIco=waiting?`<span class="wait-ico" aria-hidden="true">${svgIcon("M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0")}</span>`:`<span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span>`;
     const w=a.work&&a.work.issue?a.work:null;
     let workHtml="";
     if(w){
@@ -1820,6 +1833,18 @@ function syncTables(box,list,all,d){
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
+    const nextLoading=!!(d.loading||d.plugin_loading||(d.plugins||[]).some(p=>p.loading));
+    if(nextLoading!==loadingState){loadingState=nextLoading;schedulePoll();}
+    const pending=(d.plugins||[]).filter(p=>p.loading);
+    const skeletons=document.getElementById("quota-loading-cards");
+    if(sectionChanged("plugin_pending",[pending.map(p=>p.id),!!d.loading])){
+      patchRows(skeletons,(pending.length?pending:d.loading?[{id:"state"}]:[]).map(p=>({
+        key:p.id,cls:"quota-card quota-skeleton",attrs:{"aria-busy":"true"},
+        html:`<p>${esc(p.id==="state"?"Kvóty":p.id)} · načítám…</p><div class="skeleton-line"></div><div class="skeleton-line"></div>`
+      })),"div");
+    }
+    const updating=document.getElementById("state-updating"), hideUpdating=!(d.stale||d.state_age_seconds>30);
+    if(updating.hidden!==hideUpdating) updating.hidden=hideUpdating;
     if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
     if(sectionChanged("resets",d.resets)) renderResets(d.resets);
     try{ if(sectionChanged("attention",[d.attention,d.overall])) renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
@@ -1912,7 +1937,7 @@ document.addEventListener("click", async e=>{
 });
 function schedulePoll(){
   clearInterval(pollTimer);
-  if(!paused&&document.visibilityState!=="hidden") pollTimer=setInterval(refresh, POLL*1000);
+  if(!paused&&document.visibilityState!=="hidden") pollTimer=setInterval(refresh, loadingState?1000:POLL*1000);
 }
 document.getElementById("btn-refresh").addEventListener("click",()=>refresh());
 document.getElementById("btn-pause").addEventListener("click",ev=>{
@@ -1935,7 +1960,7 @@ PAGE=PAGE.replace('AGENT_TABLES_MAIN',
         .replace('NOTE','')
         .replace('data-svc="agents"','id="agenti" data-svc="agents"')+
     '<div id="plugin-agent-tables"></div>').replace('AGENT_TABLES_SIDE',
-    '<div id="plugin-tables"></div>'
+    '<div id="plugin-tables"></div><div id="quota-loading-cards" class="quota-cards" role="status" aria-label="Načítání kvót"></div>'
     '<div id="plugin-loading" role="status" hidden class="mb-4 border border-slate-200 bg-slate-50 text-slate-600 rounded-lg p-3">'
     'Načítám kvóty a data pluginů…</div><div id="plugin-errors"></div>').replace('AGENT_TABLES_TEMPLATES',
     QUOTA_SECTION+
@@ -2179,50 +2204,149 @@ def _state() -> bytes:
     return json.dumps(_state_data()).encode()
 
 
-#: /api/state is polled by every open page; a full build costs ~2 s (SLA/timeline queries, agent
-#: detection subprocesses). Serve the last build when it is this fresh, rebuild in the background
-#: when it is older but still usable, and build synchronously only when there is nothing recent.
 STATE_FRESH_SECONDS = 4.0
-STATE_MAX_AGE_SECONDS = 30.0
+STATE_MAX_AGE_SECONDS = 300.0
+SNAPSHOT_MAX_AGE_SECONDS = 900.0
+#: Idle background rebuild cadence. Open browsers poll and trigger fresher rebuilds themselves;
+#: a 1 s loop would rebuild the state (~2 s CPU) and re-run plugin subprocesses non-stop on a shared host.
+BACKGROUND_REFRESH_SECONDS = 30
 _state_lock = threading.Lock()
-_state_cache: tuple | None = None          # (monotonic time, bytes)
+_state_cache: tuple | None = None
 _state_building = False
+_state_generation = 0
+_state_disk_checked = False
+_state_from_disk = False
+
+
+def _loading_state() -> dict:
+    return {"agents": [], "agent_tables": [], "services": [], "plugins": [],
+            "plugin_errors": [], "columns": [], "resets": [], "forecasts": {},
+            "queue": {}, "attention": [], "plugin_loading": True, "loading": True,
+            "overall": {"level": "loading", "summary_cs": "Načítám…"}}
+
+
+def _read_snapshot():
+    try:
+        path = config.state_dir() / "state-snapshot.json"
+        age = time.time() - path.stat().st_mtime
+        if not 0 <= age < SNAPSHOT_MAX_AGE_SECONDS or path.stat().st_size > 8*1024*1024:
+            return None
+        data = json.loads(path.read_bytes())
+        if not isinstance(data, dict) or not isinstance(data.get("agents"), list):
+            return None
+        return (time.monotonic() - age, json.dumps(data).encode())
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _write_snapshot(body):
+    path = config.state_dir() / "state-snapshot.json"
+    fd, name = tempfile.mkstemp(prefix=".state-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(body)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def _retain_pending_tables(data, previous, age):
+    """Keep disk-backed plugin rows until that plugin publishes, with a fixed stale deadline."""
+    pending = {p['id'] for p in data.get('plugins', []) if p.get('loading') or p.get('error')}
+    if not pending:
+        return data
+    existing = {r.get('plugin') for t in data.get('agent_tables', []) for r in t.get('rows', [])}
+    retained = []
+    for table in previous.get('agent_tables', []):
+        rows = []
+        for row in table.get('rows', []):
+            stamp = row.get('snapshot_at', table.get('snapshot_at', previous.get('time', time.time()-age)))
+            pid = row.get('plugin') or str(table.get('id', '')).split(':')[0]
+            if pid in pending-existing and 0 <= time.time()-stamp < plugins.MAX_STALE_SECONDS:
+                rows.append({**row, 'snapshot_at': stamp})
+        if not rows:
+            continue
+        stamp = min(r['snapshot_at'] for r in rows)
+        old = plugins._stale_snapshot({'tables': [{**table, 'rows': rows}]}, time.time()-stamp)['tables'][0]
+        old['snapshot_at'] = stamp
+        retained.append(old)
+    if retained:
+        data['agent_tables'] = _merge_tables_by_title(data.get('agent_tables', []) + retained)
+        ids = {c['id'] for c in data.get('columns', [])}
+        data['columns'] = data.get('columns', []) + [c for c in previous.get('columns', []) if c['id'] not in ids]
+        data['attention'], data['overall'] = compute_attention(data)
+    return data
 
 
 def _rebuild_state() -> bytes:
-    global _state_cache, _state_building
+    global _state_cache, _state_building, _state_from_disk
+    with _state_lock:
+        generation = _state_generation
     try:
         body = _state()
         with _state_lock:
-            _state_cache = (time.monotonic(), body)
+            if generation == _state_generation:
+                if _state_cache:
+                    data = _retain_pending_tables(json.loads(body), json.loads(_state_cache[1]),
+                                                  time.monotonic()-_state_cache[0])
+                    body = json.dumps(data).encode()
+                _state_cache = (time.monotonic(), body)
+                _state_from_disk = False
+                try:
+                    _write_snapshot(body)
+                except OSError:
+                    pass  # persistence is best effort; memory cache still works
         return body
+    except Exception as exc:
+        print(f"state warm-up: {type(exc).__name__}", flush=True)
+        return json.dumps(_loading_state()).encode()
     finally:
         with _state_lock:
             _state_building = False
 
 
 def _cached_state(clock=time.monotonic) -> bytes:
-    """Fast /api/state for polling pages (stale-while-revalidate, bounded by STATE_MAX_AGE_SECONDS)."""
-    global _state_building
+    """Always answer immediately; all probes and state builds run in the background."""
+    global _state_building, _state_cache, _state_disk_checked, _state_from_disk
     with _state_lock:
+        if not _state_disk_checked:
+            _state_disk_checked = True
+            if _state_cache is None:
+                _state_cache = _read_snapshot()
+                _state_from_disk = _state_cache is not None
         cache = _state_cache
-        age = clock() - cache[0] if cache else None
-        if cache and age < STATE_FRESH_SECONDS:
-            return cache[1]
-        if cache and age < STATE_MAX_AGE_SECONDS:
-            if not _state_building:
-                _state_building = True
-                threading.Thread(target=_rebuild_state, daemon=True, name="agentsmon-state").start()
-            return cache[1]
-        _state_building = True
-    return _rebuild_state()
+        age = max(0, clock()-cache[0]) if cache else 0
+        data = json.loads(cache[1]) if cache else _loading_state()
+        loading = data.get("loading") or data.get("plugin_loading")
+        if not _state_building and (not cache or _state_from_disk or
+                                    age >= (1 if loading else STATE_FRESH_SECONDS)):
+            _state_building = True
+            threading.Thread(target=_rebuild_state, daemon=True, name="agentsmon-state").start()
+        if cache and age >= (SNAPSHOT_MAX_AGE_SECONDS if _state_from_disk else STATE_MAX_AGE_SECONDS):
+            data = _loading_state()
+        data["state_age_seconds"] = round(age, 3)
+        data["stale"] = bool(_state_from_disk or age > 30)
+        if _state_from_disk:
+            data["loading"] = True
+            for table in data.get("agent_tables", []):
+                table["stale"] = True
+            for row in data.get("agents", []) + [r for t in data.get("agent_tables", []) for r in t.get("rows", [])]:
+                row.pop("row_actions", None)
+                row["actions_locked"] = True
+                row["actions"] = False
+            data["overall"] = {"level": "loading", "summary_cs": "Načítám…"}
+        return json.dumps(data).encode()
 
 
 def invalidate_state_cache() -> None:
-    """After an action the next poll must show its effect, not a pre-action snapshot."""
-    global _state_cache
+    """Discard pre-action state, including any build already in flight; never reload it from disk."""
+    global _state_cache, _state_generation, _state_disk_checked, _state_from_disk
     with _state_lock:
         _state_cache = None
+        _state_generation += 1
+        _state_disk_checked = True
+        _state_from_disk = False
 
 
 def _state_data() -> dict:
@@ -2501,7 +2625,7 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
                    summary_cs=_summary_sentence(out, crit, warn, info))
     # Quota/plugin data not there yet: never claim "all OK" before the numbers that may say otherwise.
-    if data.get("plugin_loading") and not data.get("agent_tables") and not crit:
+    if (data.get("loading") or data.get("plugin_loading")) and not crit:
         overall.update(level="loading", text_cs="Načítám…",
                        summary_cs="Načítám kvóty a stav pluginů – výsledek se ještě může změnit.")
     return out, overall
@@ -2795,26 +2919,18 @@ def _merge_tables_by_title(tables: list) -> list:
 def _quota_loop(stop: threading.Event, interval: int = 60) -> None:
     """Build the state in the background so quota history and alerts keep running with no browser
     open. The state builder is cheap (plugins are cached and refreshed off-thread)."""
-    while not stop.wait(interval):
-        try:
-            data = _state_data()
-            # Without a browser polling, the plugin cache is cold: that build returns an empty
-            # 'loading' snapshot and starts a refresh. Retry briefly until real data is there.
-            for _ in range(10):
-                if not data.get("plugin_loading"):
-                    break
-                if stop.wait(3):
-                    return
-                data = _state_data()
-        except Exception as exc:
-            print(f"quota loop: {type(exc).__name__}: {exc}", flush=True)
+    while not stop.is_set():
+        _cached_state()
+        if stop.wait(interval):
+            return
 
 
 def _warm_plugins(tries: int = 10, pause: float = 2.0) -> bool:
     """Build the state once at startup (starts the off-thread plugin refresh) and wait until it lands."""
     for _ in range(tries):
         try:
-            if not _state_data().get("plugin_loading"):
+            data = json.loads(_rebuild_state())
+            if not data.get("plugin_loading"):
                 return True
         except Exception as exc:              # warm-up is best effort
             print(f"plugin warm-up: {type(exc).__name__}: {exc}", flush=True)
@@ -2892,10 +3008,9 @@ def serve(host: str, port: int) -> None:
     quota.start()
     alerts.start()
     workqueue.start(cfg)      # GitHub/supervisor work queue: background cache, no-op when disabled
-    threading.Thread(target=_quota_loop, args=(threading.Event(),), daemon=True,
+    threading.Thread(target=_quota_loop, args=(threading.Event(), BACKGROUND_REFRESH_SECONDS), daemon=True,
                      name="agentsmon-quota").start()
-    # Warm the plugin cache right away so the first page after a (re)start already has quotas.
-    threading.Thread(target=_warm_plugins, daemon=True, name="agentsmon-warm").start()
+
     write_pidfile()
     server.serve_forever()
 
