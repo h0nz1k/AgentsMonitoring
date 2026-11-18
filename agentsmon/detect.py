@@ -738,9 +738,14 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
         try:
             with closing(sqlite3.connect(store.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
                 conn.execute("PRAGMA query_only=ON")
-                for query in ("SELECT model FROM session_model_usage WHERE session_id=? "
-                              "ORDER BY last_seen DESC LIMIT 1",
-                              "SELECT model FROM sessions WHERE id=?"):
+                # Rows with ``task`` set are auxiliary calls (approval, compression, title,
+                # session_search …) that Hermes routes to a cheap model; they are not the model
+                # answering the conversation, so only main turns (task empty/NULL) count.
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(session_model_usage)")}
+                usage = ("SELECT model FROM session_model_usage WHERE session_id=? "
+                         + ("AND (task IS NULL OR task='') " if "task" in cols else "")
+                         + "ORDER BY last_seen DESC LIMIT 1")
+                for query in (usage, "SELECT model FROM sessions WHERE id=?"):
                     try:
                         row = conn.execute(query, (sid,)).fetchone()
                     except sqlite3.Error:

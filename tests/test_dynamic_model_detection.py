@@ -45,6 +45,23 @@ class HermesLiveModel(unittest.TestCase):
                             sessions=[("s1", "gemini-3.8-flash")])
         self.assertEqual(live, "Gemini 3.8 Flash")
 
+    def test_auxiliary_tasks_do_not_count_as_conversation_model(self):
+        # Hermes logs approval/compression/title calls in session_model_usage with task set;
+        # a later aux call on Gemini must not look like the chat switching model.
+        with tempfile.TemporaryDirectory() as d, patch.object(Path, "home", return_value=Path(d)):
+            root = Path(d) / ".hermes"; root.mkdir()
+            db = root / "state.db"
+            with sqlite3.connect(db) as c:
+                c.execute("CREATE TABLE gateway_routing(scope TEXT, entry_json TEXT, updated_at REAL)")
+                c.execute("CREATE TABLE session_model_usage(session_id TEXT, model TEXT, task TEXT, last_seen REAL)")
+                c.execute("CREATE TABLE sessions(id TEXT, model TEXT)")
+                c.execute("INSERT INTO gateway_routing VALUES(?,?,?)",
+                          (str(root / "sessions"), json.dumps({"session_id": "s1", "platform": "telegram"}), 10))
+                c.executemany("INSERT INTO session_model_usage VALUES(?,?,?,?)", [
+                    ("s1", "claude-opus-5-5", "", 5), ("s1", "gemini-3.8-flash-low", "approval", 9),
+                    ("s1", "gemini-3.8-flash-high", "compression", 8), ("s1", "gpt-6.2-sol", None, 3)])
+            self.assertEqual(detect._hermes_live_model(), "Opus 5.5")
+
     def test_missing_store_falls_back_to_config(self):
         with tempfile.TemporaryDirectory() as d, patch.object(Path, "home", return_value=Path(d)):
             p = Path(d) / ".hermes"; p.mkdir()

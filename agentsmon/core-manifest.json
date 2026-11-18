@@ -1,5 +1,5 @@
 {
-  "content_id": "4c0d7c9c274ef586dd2a7bffa457a2822ce5bedd6dea09da4fcb2ede3c140435",
+  "content_id": "07b80e808a7396ff56e7da5744f9501ce448df5c7cab7a8a6e56ea1220ed0fce",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
@@ -8,7 +8,7 @@
     "config.py": "060ab5d487db1233aadc47d9582fe28ac75db06db0ee869a5cc029b0253a3cfe",
     "dashboard.py": "2ad4eb9400a08ae839a91e6b98bead3e5764b6cab2bbf4b437c46774382a7c6d",
     "db.py": "470bafc161d24ac1bea302af0873ebf2e596a8ce77796cb29e79189bb2d1c5cf",
-    "detect.py": "38d9802e9f005ba82c9ff47a70f5ac441ab82f79f3d386cad72e14285cbdd23b",
+    "detect.py": "dfa2867f236807e8054d0c94a253b1562c0f582097d2bdf6fc524370758e8827",
     "dialogs.py": "690cf9a5fb439809329a8054d74de32cca192b67d6e931926762f345812b2b66",
     "doctor.py": "b91ff6caabe4fe9a967e46ff0eed1ad0162b99c94d402bd5dcefa82745bb2818",
     "gateway_restart.py": "7da75c798b6d8d631ced7ee84cea7967b86581c526705815270112b93b3fb9f7",
