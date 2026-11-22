@@ -83,7 +83,26 @@ def _daemon_port(health_url: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def pinned_agents(pinned: list[dict]) -> list[dict]:
+#: Consecutive failed liveness checks before a previously-up pinned daemon/agent is reported down
+#: (same idea as ``probe.min_outage_samples`` for services). Keyed by display name.
+_ALIVE_FAILS: dict[str, int] = {}
+_ALIVE_SEEN_UP: set[str] = set()
+
+
+def _debounce_alive(name: str, raw_ok: bool, min_outage: int) -> bool:
+    """Stay green through transient blips; flip to down only after ``min_outage`` consecutive fails."""
+    key = str(name or "")
+    if raw_ok:
+        _ALIVE_FAILS[key] = 0
+        _ALIVE_SEEN_UP.add(key)
+        return True
+    _ALIVE_FAILS[key] = _ALIVE_FAILS.get(key, 0) + 1
+    if key not in _ALIVE_SEEN_UP:
+        return False
+    return _ALIVE_FAILS[key] < max(1, int(min_outage))
+
+
+def pinned_agents(pinned: list[dict], min_outage: int = 3) -> list[dict]:
     """Non-tmux processes (OpenClaw, Hermes, …) shown at the top of the agents table.
 
     Liveness: a daemon that advertises a ``health_url`` is "up" iff that endpoint answers — NOT
@@ -93,7 +112,11 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
     Worse, a loose pattern can match an unrelated process (an OpenClaw node launched from a
     ``.hermes/node`` path matches ``hermes.*gateway``). The health endpoint sidesteps all of that.
     The ``process`` pattern is only the liveness signal for daemons WITHOUT a ``health_url``;
-    when a ``health_url`` is set the pattern is best-effort, used solely to report uptime."""
+    when a ``health_url`` is set the pattern is best-effort, used solely to report uptime.
+
+    A single failed check does not flip the row red: the same ``min_outage`` consecutive-failure
+    debounce as services applies. Health HTTP timeout matches ``probe.HEALTH_TIMEOUT``.
+    """
     from . import probe
     out = []
     for d in pinned:
@@ -111,15 +134,16 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
         health_url = d.get("health_url")
         lat = None
         if health_url:
-            ok, secs = probe._http(health_url, timeout=2)
-            alive = bool(ok)                              # health endpoint is authoritative
+            ok, secs = probe._http(health_url, timeout=probe.HEALTH_TIMEOUT)
+            raw_alive = bool(ok)                          # health endpoint is authoritative
             lat = round(secs * 1000) if secs is not None else None
         else:
             if d.get('manager'):
                 from . import managed
-                alive = managed.active(d['manager']) is True
+                raw_alive = managed.active(d['manager']) is True
             else:
-                alive = bool(pids)
+                raw_alive = bool(pids)
+        alive = _debounce_alive(d.get("name"), raw_alive, min_outage)
         # Concrete model detected LIVE (so it stays current without rebuilding config); an
         # explicit config tag/vendor still wins if set.
         model = daemon_model(d.get("name", ""), d.get("hermes_profile"))
@@ -136,7 +160,7 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
             # profile row may still offer ``restart_gateway`` (whole multiplex) via gateway_restart.
             **({"actions": False} if d.get("actions") is False else {}),
             **({"gateway_restart": True,
-                "gateway_profile": d.get("hermes_profile") or "lana"}
+                "gateway_profile": d.get("hermes_profile") or ""}
                if d.get("actions") is False and d.get("hermes_profile") else {}),
         })
     return out
@@ -902,11 +926,13 @@ DEFAULT_WAITING_PATTERNS = [
     r"\bSign in with ChatGPT\b|\b(Please run|Run) /login\b|\bPaste (the )?(code|token) here\b",
     r"\b(Log|Sign) in to (Cursor|Google|Antigravity)\b",
 ]
-WAITING_TAIL_LINES = 12
+WAITING_TAIL_LINES = 3
 PANE_TTL = 10.0
 PANE_TIMEOUT = 2.0
 HINT_MAX = 120
 _PANE_CACHE: dict[str, tuple[float, str | None]] = {}
+#: Previous pane text per session — waiting only after two consecutive identical captures.
+_PANE_PREV: dict[str, str | None] = {}
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 
 
@@ -950,19 +976,33 @@ def _compile_patterns(patterns) -> list:
     return out
 
 
+_WAITING_HINT_PRIORITY = re.compile(
+    r"Do you want to|Would you like to|Waiting for|Press (Enter|any key)|Allow |"
+    r"Run (this )?command\?|Approve|Sign in|Log in|Paste ",
+    re.I,
+)
+
+
 def waiting_prompt(text: str | None, patterns=None, tail: int = WAITING_TAIL_LINES) -> str | None:
-    """Sanitized hint (the first matching line of the pane's tail) when the TUI waits for a human."""
+    """Sanitized hint when the TUI waits for a human.
+
+    A match must appear in the last ``tail`` (~3) non-empty lines (so scrollback history alone
+    does not count). The hint text may be taken from a few lines above that, preferring a
+    descriptive prompt over a bare ``1. Yes`` option row.
+    """
     if not text:
         return None
     pats = _compile_patterns(DEFAULT_WAITING_PATTERNS if patterns is None else patterns)
     if not pats:
         return None
     lines = [ln.strip().strip("│┃╭╮╰╯─ ").strip() for ln in ANSI_RE.sub("", text).splitlines()]
-    lines = [ln for ln in lines if ln][-tail:]
-    for ln in lines:
-        if any(rx.search(ln) for rx in pats):
-            return sanitize_hint(ln) or "čeká na vstup"
-    return None
+    lines = [ln for ln in lines if ln]
+    if not any(any(rx.search(ln) for rx in pats) for ln in lines[-tail:]):
+        return None
+    window = lines[-(tail + 4):]
+    hits = [ln for ln in window if any(rx.search(ln) for rx in pats)]
+    best = next((ln for ln in hits if _WAITING_HINT_PRIORITY.search(ln)), hits[0])
+    return sanitize_hint(best) or "čeká na vstup"
 
 
 def waiting_patterns(cfg: dict | None):
@@ -972,7 +1012,12 @@ def waiting_patterns(cfg: dict | None):
 
 def annotate_waiting(rows: list[dict], cfg: dict | None = None, now: float | None = None) -> None:
     """Mark live tmux agents whose pane shows an approval/confirmation/login prompt:
-    ``waiting=True, activity='waiting', status='Čeká na vstup', waiting_hint=<≤120 chars>``."""
+    ``waiting=True, activity='waiting', status='Čeká na vstup', waiting_hint=<≤120 chars>``.
+
+    Requires the match in the last ``WAITING_TAIL_LINES`` (~3) non-empty lines **and** an
+    unchanged pane between two consecutive reads — history left in the scrollback alone is not
+    enough.
+    """
     pats = waiting_patterns(cfg)
     if pats is not None and not pats:
         return
@@ -981,8 +1026,15 @@ def annotate_waiting(rows: list[dict], cfg: dict | None = None, now: float | Non
             continue
         if str(row.get("kind") or "").lower() not in WAITING_KINDS:
             continue
-        hint = waiting_prompt(capture_pane(row.get("tmux_session") or row["name"], now), pats)
-        if hint:
+        session = row.get("tmux_session") or row["name"]
+        text = capture_pane(session, now)
+        hint = waiting_prompt(text, pats)
+        prev = _PANE_PREV.get(session)
+        _PANE_PREV[session] = text
+        if len(_PANE_PREV) > 64:
+            for k in list(_PANE_PREV)[:16]:
+                _PANE_PREV.pop(k, None)
+        if hint and prev is not None and prev == text:
             row.update(waiting=True, activity="waiting", status="Čeká na vstup", waiting_hint=hint)
 
 

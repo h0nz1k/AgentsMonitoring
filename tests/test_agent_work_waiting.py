@@ -154,6 +154,7 @@ class WaitingDetection(unittest.TestCase):
 
     def test_annotate_waiting_and_cache(self):
         detect._PANE_CACHE.clear()
+        detect._PANE_PREV.clear()
         rows = [{"name": "Claude", "kind": "claude-code", "alive": True},
                 {"name": "Cursor", "kind": "Cursor", "alive": True},
                 {"name": "Shell", "kind": "shell", "alive": False},
@@ -170,8 +171,9 @@ class WaitingDetection(unittest.TestCase):
             return R(panes.get(args[args.index("-t") + 1], ""))
 
         with patch.object(detect, "_run", side_effect=fake_run):
-            detect.annotate_waiting(rows, {}, now=1000.0)
-            detect.annotate_waiting([dict(rows[0])], {}, now=1005.0)     # cached within 10 s
+            detect.annotate_waiting(rows, {}, now=1000.0)               # arm (no waiting yet)
+            self.assertNotIn("waiting", rows[0])
+            detect.annotate_waiting(rows, {}, now=1005.0)               # same pane within TTL → waiting
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(a[1:4] == ["capture-pane", "-p", "-t"] and a[-2:] == ["-S", "-30"] and t == 2.0
                             for a, t in calls))
@@ -181,11 +183,13 @@ class WaitingDetection(unittest.TestCase):
         self.assertNotIn("waiting", rows[1])
         self.assertNotIn("waiting", rows[3])
         detect._PANE_CACHE.clear()
+        detect._PANE_PREV.clear()
         with patch.object(detect, "_run", side_effect=fake_run):
             r2 = [{"name": "Claude", "kind": "claude-code", "alive": True}]
             detect.annotate_waiting(r2, {"detect": {"waiting_patterns": []}}, now=2000.0)
         self.assertNotIn("waiting", r2[0])
         detect._PANE_CACHE.clear()
+        detect._PANE_PREV.clear()
 
     def test_attention_lists_waiting_agent(self):
         att, ov = dashboard.compute_attention({"agents": [

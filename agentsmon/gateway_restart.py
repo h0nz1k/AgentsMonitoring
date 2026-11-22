@@ -21,6 +21,7 @@ ACTION_ID = "restart_gateway"
 GATEWAY_DAEMON = "Hermes"
 COOLDOWN_SEC = 600
 GETME_TIMEOUT = 8
+ACTIONS_MAX_BYTES = 5 * 1024 * 1024
 _TOKEN_RE = re.compile(
     r"(?im)^(?:export\s+)?TELEGRAM_BOT_TOKEN\s*=\s*[\"']?(\d{6,}:[A-Za-z0-9_-]{30,})"
 )
@@ -39,7 +40,7 @@ STEP_UP_SUMMARY_CS = (
 def normalize_profile(profile) -> str:
     if isinstance(profile, str) and _PROFILE_RE.fullmatch(profile):
         return profile
-    return "lana"
+    return ""
 
 
 def hermes_profiles(cfg: dict | None = None) -> list[str]:
@@ -52,8 +53,6 @@ def hermes_profiles(cfg: dict | None = None) -> list[str]:
             label = "default" if p in ("main", "default") else p
             if label not in found:
                 found.append(label)
-    if "lana" not in found:
-        found.append("lana")
     return found
 
 
@@ -91,7 +90,7 @@ def profile_for_name(name: str, cfg: dict | None = None) -> str:
             return normalize_profile(prof)
     if "lana" in low:
         return "lana"
-    return "lana"
+    return ""
 
 
 def read_bot_token(profile: str) -> str | None:
@@ -129,7 +128,7 @@ def telegram_getme(token: str, timeout: float = GETME_TIMEOUT, urlopen=None) -> 
         return {"ok": False, "status": "error"}
 
 
-def precheck(profile: str = "lana", urlopen=None) -> dict:
+def precheck(profile: str = "", urlopen=None) -> dict:
     """Server-side Telegram reachability check for the lane bot (no secrets in result)."""
     profile = normalize_profile(profile)
     token = read_bot_token(profile)
@@ -207,6 +206,11 @@ def log_action(entry: dict) -> None:
         line = (blob + "\n").encode("utf-8")
         with _LOCK:
             path = actions_log_path()
+            try:
+                if path.stat().st_size + len(line) > ACTIONS_MAX_BYTES:
+                    os.replace(path, path.with_name(path.name + ".1"))
+            except FileNotFoundError:
+                pass
             fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
             try:
                 os.write(fd, line)
@@ -233,7 +237,7 @@ def lane_service_name(cfg: dict | None = None) -> str | None:
     for s in cfg.get("services") or []:
         if is_lane_service(s):
             return s.get("name")
-    return "LANA Hermes Telegram Lane"
+    return None
 
 
 def perform(cfg: dict | None = None, runner=None) -> tuple[bool, str]:

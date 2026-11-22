@@ -24,7 +24,11 @@ def _proc_up(pattern: str) -> bool:
     return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
 
 
-def _http(url: str, timeout: float = 4) -> tuple[bool, float | None]:
+#: Shared health-check timeout (system card, pinned daemons, services).
+HEALTH_TIMEOUT = 4.0
+
+
+def _http(url: str, timeout: float = HEALTH_TIMEOUT) -> tuple[bool, float | None]:
     """Health check returning (ok, **warm** round-trip latency). We do a warm-up request to
     establish the TCP+TLS connection, then time a second request on the same connection — so the
     reported latency is the server's actual response time, not the one-off handshake cost (which
@@ -196,7 +200,7 @@ def _system_health(cfg: dict) -> tuple[bool, float | None, str]:
             age = None
         limit = 3 * int(ka.get("interval_seconds", 60)) + 30
         if age is None or age > limit:
-            down.append("keepalive (žádný průchod %s)" % ("délší dobu" if age is None else f"za {int(age)} s"))
+            down.append("keepalive (žádný průchod %s)" % ("delší dobu" if age is None else f"za {int(age)} s"))
 
     uniq: list[str] = []
     for n in down:

@@ -40,7 +40,8 @@ def quota_table(*bars, name="Codex · agentops"):
 class ForecastAttention(unittest.TestCase):
     def fc(self, **kw):
         f = {"source": "Codex · agentops", "label": "5h", "used_pct": 47.0, "reset_at": ts(2026, 11, 2, 10, 45),
-             "exhaust_at": ts(2026, 11, 2, 10, 14), "will_exhaust_before_reset": True, "exhausted": False}
+             "exhaust_at": ts(2026, 11, 2, 10, 14), "will_exhaust_before_reset": True, "exhausted": False,
+             "span_seconds": 3600}
         f.update(kw)
         return f
 

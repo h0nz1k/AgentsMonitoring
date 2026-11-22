@@ -82,7 +82,8 @@ class Endpoint(unittest.TestCase):
 
     def test_metrics_served_with_exposition_content_type(self):
         url = self.serve({"dashboard": {}})
-        with patch.object(dashboard, "_state_data", return_value=DATA):
+        cached = json.dumps(DATA).encode()
+        with patch.object(dashboard, "_cached_state", return_value=cached):
             with urllib.request.urlopen(url, timeout=5) as r:
                 body, ctype = r.read().decode(), r.headers["Content-Type"]
         self.assertEqual(ctype, "text/plain; version=0.0.4; charset=utf-8")
@@ -91,7 +92,8 @@ class Endpoint(unittest.TestCase):
     def test_metrics_respect_basic_auth(self):
         cfg = {"dashboard": {"auth": {"user": "u", "pwhash": dashboard.password_hash("p")}}}
         url = self.serve(cfg)
-        with patch.object(dashboard, "_state_data", return_value=DATA):
+        cached = json.dumps(DATA).encode()
+        with patch.object(dashboard, "_cached_state", return_value=cached):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 urllib.request.urlopen(url, timeout=5)
             self.assertEqual(ctx.exception.code, 401)

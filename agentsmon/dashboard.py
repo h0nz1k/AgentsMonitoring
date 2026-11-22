@@ -828,7 +828,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}
 .layout{display:flex;flex-direction:column;gap:8px}.col-main,.col-side{width:100%;min-width:0}#footer{font-size:12px;margin-top:24px;color:var(--muted)!important}
 @media(min-width:1000px){#app{padding:28px 32px}.layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.overview{padding:24px 28px}.status-ring{flex-basis:132px;height:132px}.ring-center b{font-size:28px}.hero-title{font-size:26px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:699px){.who{display:none}#btn-refresh{display:none}.topbar{gap:8px}.brand-mark{width:38px;height:38px}.brand h1{font-size:24px}.overview{padding:16px}.hero-top{gap:12px}.status-ring{flex-basis:96px;height:96px}.ring-center b{font-size:20px}.hero-title{font-size:20px}.hero-copy p{font-size:13px}.overview-chips{gap:6px}.overview-chip{padding:0 10px}.scroll-hint{display:none!important}.overflow-x-auto{overflow:visible!important}.agents-table,.svc-rows-wrap table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead,.svc-rows-wrap thead{display:none}.agent-rows,.svc-rows{display:grid;gap:12px}.agent-rows tr,.svc-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td,.svc-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap,.svc-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .quota-stack{max-width:100%}.agents-table{border:0}.agents-table .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0}.svc-row{flex-wrap:wrap}.svc-nm{min-width:120px}.q-tabs{flex-wrap:wrap;overflow:visible}.q-tab{min-height:44px}.q-item{border-radius:16px;padding:14px}.svc-head{flex-wrap:wrap}.svc-head h2{flex:1}.svc-head .agents-count{max-width:70%;text-align:right}.limit-copy{overflow-wrap:anywhere}}
+@media(max-width:699px){#btn-refresh{display:none}.topbar{gap:8px}.brand-mark{width:38px;height:38px}.brand h1{font-size:24px}.overview{padding:16px}.hero-top{gap:12px}.status-ring{flex-basis:96px;height:96px}.ring-center b{font-size:20px}.hero-title{font-size:20px}.hero-copy p{font-size:13px}.overview-chips{gap:6px}.overview-chip{padding:0 10px}.scroll-hint{display:none!important}.overflow-x-auto{overflow:visible!important}.agents-table,.svc-rows-wrap table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead,.svc-rows-wrap thead{display:none}.agent-rows,.svc-rows{display:grid;gap:12px}.agent-rows tr,.svc-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td,.svc-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap,.svc-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .quota-stack{max-width:100%}.agents-table{border:0}.agents-table .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0}.svc-row{flex-wrap:wrap}.svc-nm{min-width:120px}.q-tabs{flex-wrap:wrap;overflow:visible}.q-tab{min-height:44px}.q-item{border-radius:16px;padding:14px}.svc-head{flex-wrap:wrap}.svc-head h2{flex:1}.svc-head .agents-count{max-width:70%;text-align:right}.limit-copy{overflow-wrap:anywhere}}
 
 
 :root[data-theme] body.bg-slate-50{background:var(--bg)!important;color:var(--tx)!important}
@@ -858,7 +858,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .credit-remaining{font-size:16px;color:var(--tx);margin-bottom:6px}.credit-pace{display:block;margin:10px 0}.qc-note summary{font-weight:400}.quota-card .pod{margin-top:auto}
 @media(min-width:1100px){.layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:28px}.overview{padding:20px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}.overview-chips{grid-column:1/-1}.overview-info{margin-left:124px}.status-ring{flex-basis:108px;height:108px}.hero-title{font-size:20px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-top{align-items:center;gap:12px} .overview .status-ring{flex-basis:108px;height:108px}.hero-copy p{font-size:12px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}.attn-item{align-content:start}.attn-text{min-width:140px}.attn-link{margin-top:auto}#hero-resets{border-top:0;border-left:1px solid var(--line);padding:0 0 0 16px}#hero-resets ol{display:grid;gap:4px}#hero-resets li{display:block;border-left:2px solid var(--line);padding-left:10px}#hero-resets b{display:block;margin-top:4px}}
 @media(min-width:700px) and (max-width:1099px){.layout{display:flex}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:699px){#hero-resets{display:none}.overview-chip{font-size:12px}.provider-avatar{width:34px;height:34px;border-radius:10px}.qc-head{gap:8px}.qc-name{font-size:15px}.quota-card{padding:16px}.overview-info{margin-left:108px}.hero-title{font-size:19px}.hero-copy p{font-size:12px}.attn-text{min-width:180px}.agent-rows .acct-chip{max-width:155px}}
+@media(max-width:699px){.overview-chip{font-size:12px}.provider-avatar{width:34px;height:34px;border-radius:10px}.qc-head{gap:8px}.qc-name{font-size:15px}.quota-card{padding:16px}.overview-info{margin-left:108px}.hero-title{font-size:19px}.hero-copy p{font-size:12px}.attn-text{min-width:180px}.agent-rows .acct-chip{max-width:155px}}
 
 /* Compact rows share the same structure, including agents without quota data. */
 .queue-more{min-height:44px;padding:8px 14px;margin-top:12px;border:1px solid var(--line);border-radius:12px;color:var(--info);background:var(--card);font-size:13px}.q-title a{min-height:44px!important}.q-item{padding:12px 14px}.q-extra .pod>summary{min-height:44px;line-height:44px}.q-extra{display:flex;align-items:center;gap:10px}.q-extra>span{white-space:nowrap}.q-extra .pod{width:auto}.agent-rows{gap:8px}.agent-rows tr{gap:0 12px!important}.agent-rows td:nth-child(3){grid-column:1;grid-row:2;align-self:start}.agent-rows td:nth-child(4){grid-column:1;grid-row:3;align-self:start}.agent-rows td:nth-child(5){grid-column:2;grid-row:2 / span 2;align-self:start;max-width:100%}.agent-rows td:last-child{grid-column:2;grid-row:4;min-height:44px}.agent-rows .acct-chip{flex-wrap:nowrap!important;border-radius:10px;padding:0 8px;max-width:180px;gap:6px}.agent-rows .acct-name{max-width:100px}.agent-rows .acct-win{white-space:nowrap}.agent-rows td:first-child{min-height:44px;display:flex;align-items:center}.agent-rows td:nth-child(2){align-self:center}.agent-rows td:nth-child(3),.agent-rows td:nth-child(4){line-height:22px}.agent-rows td:last-child:empty{display:none}.agent-rows td:nth-child(5):last-child{grid-row:2 / span 2}.q-link,.work-link{color:var(--info)}
@@ -1019,9 +1019,9 @@ function fcClock(ts){
 }
 function fcText(f){
   if(!f) return "";
-  if(f.will_exhaust_before_reset&&f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)} (před obnovou)`;
+  if(f.will_exhaust_before_reset&&f.actionable&&f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)} (před obnovou)`;
   if(f.projected_at_reset!=null) return `Vystačí – zbude ~${fmtPct(Math.max(0,100-Number(f.projected_at_reset)))}`;
-  if(f.exhaust_at) return `Dojde ~${fcClock(f.exhaust_at)}`;
+  if(f.exhaust_at&&f.actionable) return `Dojde ~${fcClock(f.exhaust_at)}`;
   return "";
 }
 function initResetsPanel(){
@@ -1043,7 +1043,7 @@ function renderResets(list){
 
 const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
 function timelineHtml(buckets, windowDays){
-  const GREEN=98;
+  const GREEN=99;
   const bars=(buckets||[]).map(b=>{
     let cls,status;
     if(b.uptime_pct==null){cls="bg-slate-200";status="bez dat";}
@@ -1079,7 +1079,7 @@ function friendlyDetail(text){
 function gatewayRestartBtn(profile, lane, label){
   const tip=label||"Restartovat Hermes gateway";
   const dis=ROLE==="viewer"?" disabled aria-disabled=\"true\"":"";
-  const btn=`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 hover:text-sky-600 hover:bg-slate-100" data-act="restart_gateway" data-name="Hermes" data-profile="${esc(profile||"lana")}" data-lane="${esc(lane||"")}" title="${esc(tip)}" aria-label="${esc(tip)}"${dis}><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>`;
+  const btn=`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 hover:text-sky-600 hover:bg-slate-100" data-act="restart_gateway" data-name="Hermes" data-profile="${esc(profile||"")}" data-lane="${esc(lane||"")}" title="${esc(tip)}" aria-label="${esc(tip)}"${dis}><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>`;
   return ROLE==="viewer"?`<span class="viewer-lock" title="${esc(VIEWER_TIP)}">${btn}</span>`:btn;
 }
 function serviceItem(s, root=null){
@@ -1294,7 +1294,7 @@ function patchRows(parent,rows,tag){
 // ---- P1: account chips, quota cards, details disclosure ----
 let ACCTS={};                 // "table|row" → provider row (one account = one card)
 const OPEN_DETAILS=new Set(); // <details data-key> the user opened; survives the 15 s re-render
-const QUOTA_STALE_S=7200;
+const QUOTA_STALE_S=Math.min(3*15,1800); /* 3× default poll seconds; cap 30 min */
 const ISO_RE=/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 function fmtIsoText(t){
   return String(t==null?"":t).replace(ISO_RE,m=>{
@@ -1366,7 +1366,7 @@ function freshness(r){
   const st=bars.map(b=>String(b.state||"").toUpperCase());
   const status=String(r.status||"");
   const reason=status&&!/^(ok|aktuální záznam)$/i.test(status)?status:"";
-  if(r.alive===false||(bars.length&&bars.every(isUnavail)))
+  if(r.alive===false||!bars.length||bars.every(isUnavail))
     return {cls:"unavail",txt:"NEDOSTUPNÉ",reason:reason||"poskytovatel nevrátil data"};
   if(st.some(s=>s==="STALE"||s==="ZASTARALÉ")||(r.age!=null&&r.age>QUOTA_STALE_S))
     return {cls:"stale",txt:"ZASTARALÉ",reason:r.age!=null?"data před "+fmtDuration(r.age):"plugin hlásí zastaralá data"};
@@ -1382,15 +1382,16 @@ function localWhen(ts){
   return formatLocalDate(ts);
 }
 function czLabel(s){
-  return String(s||"").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"v ceně").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
+  return String(s||"").replace(/\bWeekend\b/gi,"víkend").replace(/weekly|week|\b7d\b/gi,"týden").replace(/month/gi,"měsíc").replace(/Included/gi,"v ceně").replace(/Actions min/gi,"Minuty sestavení").replace(/5h/g,"5 h").replace(/GCP Bonus/gi,"Zkušební kredit GCP").replace(/Free Trial/gi,"Zkušební kredit").replace(/\bAPI\b/g,"API");
 }
 function renderWindow(x){
   const b=x.b, m=gaugeMetrics(b), f=b.forecast||{};
-  const tone=m.unavail?"info":m.used>=100?"bad":f.will_exhaust_before_reset||m.used>=90?"warn":"ok";
+  const warnFc=!!(f.will_exhaust_before_reset&&f.actionable&&f.exhaust_at);
+  const tone=m.unavail?"info":m.used>=100?"bad":warnFc||m.used>=90?"warn":"ok";
   const expiry=b.meta&&b.meta.expires_at;
   const reset=m.unavail?"":m.resetAt?localWhen(m.resetAt):expiry?new Date(expiry).toLocaleDateString(LOCALE,{day:"numeric",month:"numeric",year:"numeric"}):fmtIsoText(b.reset_label||"");
   const verdict=m.unavail?"Údaj není dostupný":m.used>=100?"Vyčerpáno"+(reset?" – obnova "+reset:""):
-    f.will_exhaust_before_reset&&f.exhaust_at?"Dojde v "+localWhen(f.exhaust_at).replace(/ (\d{2}:\d{2})$/, " kolem $1"):
+    warnFc&&f.exhaust_at?"Dojde v "+localWhen(f.exhaust_at).replace(/ (\d{2}:\d{2})$/, " kolem $1"):
     f.projected_at_reset!=null?"Vystačí – zbude ~"+fmtPct(Math.max(0,100-Number(f.projected_at_reset))):"Předpověď zatím není dostupná";
   return `<div class="limit-row ${tone}"><div class="limit-ring" role="img" aria-label="${esc(m.aria)}" style="--remaining:${m.remShow}%"><span>${m.unavail?"–":esc(fmtPct(Math.round(m.remShow)))}</span></div>`+
     `<div class="limit-copy"><b>${esc(czLabel(b.label||winType(b,x.c)))}</b><p class="limit-reset">${reset?"↻ "+esc(reset):m.unavail?"Obnova není dostupná":"Obnova není určena"}</p><p class="verdict ${tone}">${esc(verdict)}</p></div></div>`;
@@ -1414,7 +1415,7 @@ function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
 function renderQuotaCard(r,table){
   const f=freshness(r), wins=allBars(r);
   const exh=wins.filter(x=>!x.b.parent&&!isUnavail(x.b)&&Number(x.b.percent)>=100);
-  const risk=wins.some(x=>!x.b.parent&&x.b.forecast&&x.b.forecast.will_exhaust_before_reset);
+  const risk=wins.some(x=>{const f=x.b.forecast;return !x.b.parent&&f&&f.will_exhaust_before_reset&&f.actionable;});
   const plan=(String(r.status_detail||"").match(/(?:^| · )plán ([^·]+)/i)||[])[1]||r.label;
   const status=exh.length?"Vyčerpáno":risk?"Dojde dřív":f.cls!=="ok"?f.txt:"V pořádku";
   const users=r.used_by||[];
@@ -1486,7 +1487,7 @@ function renderActions(a,table,{lock=true}={}){
   const prof=a.gateway_profile||"";
   const buttons=defs.map(x=>x.icon==='reset'
     ?`<button type="button" class="agent-act reset-pill" data-act="${esc(x.id)}" data-name="${esc(a.name)}" ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.confirm||x.label)}" aria-label="${esc(x.label)}">⟲ ${esc(x.label)}</button>`
-    :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(x.id==='restart_gateway'?'Hermes':a.name)}" ${x.id==='restart_gateway'?`data-profile="${esc(prof||'lana')}"`:''} ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
+    :`<button type="button" class="agent-act inline-flex align-middle p-1 rounded text-slate-400 ${x.icon==='stop'?'ml-0.5 hover:text-rose-600 hover:bg-rose-50':'hover:text-sky-600 hover:bg-slate-100'}" data-act="${esc(x.id)}" data-name="${esc(x.id==='restart_gateway'?'Hermes':a.name)}" ${x.id==='restart_gateway'?`data-profile="${esc(prof||'')}"`:''} ${a.plugin?`data-table="${esc(table)}" data-row="${esc(a.id)}"`:''} data-confirm="${esc(x.confirm||'')}" title="${esc(x.label)}" aria-label="${esc(x.label)}"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[x.icon]||paths.run}"/></svg></button>`).join("");
   if(ROLE==="viewer"&&buttons) return `<span class="viewer-lock" title="${esc(VIEWER_TIP)}">`+buttons.replace(/<button /g,'<button disabled aria-disabled="true" ')+'</span>';
   return buttons+(lock&&(a.actions===false||a.actions_locked)&&!a.gateway_restart?'<span class="text-xs text-slate-300 ml-0.5 align-middle" title="Akce řídí poskytovatel">🔒</span>':'');
 }
@@ -1551,7 +1552,8 @@ function renderAgents(root, agents, summary=null, columns=[]){
     const cls="border-b border-slate-100 last:border-0";
     const nameBg=NAME_BG[a.name_color];
     const nameInner=esc(a.name);
-    const attachCmd=`tmux attach -t "${a.tmux_session||a.name}"`;
+    const sess=String(a.tmux_session||a.name||"");
+    const attachCmd="tmux attach -t '"+sess.replace(/'/g,"'\\''")+"'";
     const nameCell=(a.kind!=="daemon")
       ? `<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} (kliknutím zkopírujete)">${nameInner}</span>`
       : nameInner;
@@ -2073,6 +2075,7 @@ def _agents_state(cfg: dict) -> list[dict]:
             if name == h:
                 return True
         return False
+    min_outage = int(cfg.get("probe", {}).get("min_outage_samples", 3))
     tmux = [a for a in detect.configured_agents(cfg)
             if (a["alive"] or a['name'] in overrides) and not _hidden(a["name"])]
     for a in tmux:
@@ -2088,7 +2091,10 @@ def _agents_state(cfg: dict) -> list[dict]:
             old = explicit_id(ov['restart'], detect.UUID_RE)
             if old == a['session_id']:
                 a['resume_cmd'] = ov['restart']
-    agents = detect.pinned_agents(cfg.get("pinned_daemons", [])) + tmux
+        # Same outage debounce as services / pinned daemons (one blip ≠ critical).
+        if a.get("status") not in _STOPPED:
+            a["alive"] = detect._debounce_alive(a["name"], bool(a.get("alive")), min_outage)
+    agents = detect.pinned_agents(cfg.get("pinned_daemons", []), min_outage=min_outage) + tmux
     # Telegram deep-link icon. Two sources, explicit wins:
     #  1) an explicit `telegram` field on an agent/daemon config entry (for daemons with their OWN
     #     native bot, e.g. OpenClaw/Hermes) — value is a @username or a full t.me URL;
@@ -2299,7 +2305,7 @@ def _rebuild_state() -> bytes:
                     pass  # persistence is best effort; memory cache still works
         return body
     except Exception as exc:
-        print(f"state warm-up: {type(exc).__name__}", flush=True)
+        print(f"state warm-up: {type(exc).__name__}: {exc}", flush=True)
         return json.dumps(_loading_state()).encode()
     finally:
         with _state_lock:
@@ -2336,6 +2342,15 @@ def _cached_state(clock=time.monotonic) -> bytes:
                 row["actions_locked"] = True
                 row["actions"] = False
             data["overall"] = {"level": "loading", "summary_cs": "Načítám…"}
+        elif cache and age > 30 and not data.get("loading"):
+            # Rebuilds keep failing: do not leave a green ring on a stale snapshot.
+            data["overall"] = {
+                "level": "warning",
+                "text_cs": "Stav se nepodařilo obnovit",
+                "summary_cs": "Stav se nepodařilo obnovit",
+                "count": 1,
+                "total": 1,
+            }
         return json.dumps(data).encode()
 
 
@@ -2384,6 +2399,12 @@ def _state_data() -> dict:
     resets = upcoming_resets(agent_tables, agents)
     # Quota history + burn-rate forecast + Telegram alerts; each swallows its own errors.
     forecasts = quota.observe(agent_tables, agents)
+    # UI "Dojde dřív" / attention use the same gates as Telegram (one source of thresholds).
+    _alert_s = alerts.settings(cfg)
+    _now = time.time()
+    for _f in forecasts:
+        _it = {"used": _f.get("used_pct"), "reset_at": _f.get("reset_at"), "label": _f.get("label")}
+        _f["actionable"] = bool(alerts.forecast_actionable(_alert_s, _it, _f, _now))
     quota.annotate(agent_tables, agents, resets, forecasts)
     alerts.tick(cfg, agent_tables, agents, forecasts)
     for s in services:
@@ -2666,7 +2687,10 @@ def _summary_sentence(items: list, crit: int, warn: int, info: int) -> str:
 def _forecast_attention(data: dict, now: float, add) -> None:
     """Burn-rate forecasts that run out BEFORE the window resets are 'at risk' items:
     'Codex · agentops 5h dojde ~10:14, obnova 10:45'. Sub-limits (with their own cap) and
-    windows already exhausted are skipped; horizon ≤ 7 days."""
+    windows already exhausted are skipped. Same actionability gates as Telegram alerts
+    (``forecast_min_span_seconds``, ``forecast_min_elapsed_fraction``, …)."""
+    from . import alerts
+    s = alerts.settings(config.load())
     subs = {(str(r.get("name") or "").strip(), b.get("label"))
             for t in data.get("agent_tables") or [] for r in t.get("rows") or []
             for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
@@ -2676,10 +2700,13 @@ def _forecast_attention(data: dict, now: float, add) -> None:
     for f in data.get("forecasts") or []:
         if not isinstance(f, dict) or not f.get("will_exhaust_before_reset") or f.get("exhausted"):
             continue
-        ex, rs = f.get("exhaust_at"), f.get("reset_at")
-        if type(ex) not in (int, float) or ex <= now or ex - now > 7 * 86400 or (f.get("source"), f.get("label")) in subs:
+        if (f.get("source"), f.get("label")) in subs:
             continue
-        if type(rs) in (int, float) and ex >= rs:
+        ex, rs = f.get("exhaust_at"), f.get("reset_at")
+        if type(ex) not in (int, float) or ex <= now:
+            continue
+        it = {"used": f.get("used_pct"), "reset_at": f.get("reset_at"), "label": f.get("label")}
+        if not alerts.forecast_actionable(s, it, f, now):
             continue
         text = f"{f.get('source')} {cz_label(f.get('label'))} dojde ~{_short_when(ex, now)}"
         if type(rs) in (int, float):
@@ -3218,7 +3245,7 @@ def make_server(host: str, port: int, cfg: dict):
             elif self.path.startswith("/api/state"):
                 return self._resource(_cached_state(), "application/json", "private, no-cache")
             elif is_metrics:
-                body = metrics.render(_state_data()).encode()
+                body = metrics.render(json.loads(_cached_state())).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):

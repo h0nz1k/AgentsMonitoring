@@ -49,13 +49,13 @@ DEFAULTS = {
     "digest_seconds": 600,
     "digest_max_lines": 15,
     "quiet_hours": ["22:00", "07:00"],
-    "dashboard_url": "http://192.168.1.153:8765",
+    "dashboard_url": "",   # set in config.json; empty → no Dashboard: footer line
     "min_interval_seconds": 1800,
     "interval_seconds": 60,
     "timeout_seconds": 30,
     "timezone": "Europe/Prague",
     "target": "telegram",
-    "command": ["hermes", "--profile", "lana", "send", "-q"],   # build_command appends -t <target>
+    "command": ["hermes", "send", "-q"],   # build_command appends -t <target>; profile from host config
 }
 HYSTERESIS = 5.0
 SHORT_WINDOW = 6 * 3600

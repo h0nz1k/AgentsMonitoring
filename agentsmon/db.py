@@ -8,31 +8,47 @@ concurrent read while the probe thread writes).
 from __future__ import annotations
 
 import sqlite3
-from contextlib import contextmanager
+import threading
 import time
+from contextlib import contextmanager
 
 from . import config
+
+#: Default raw-probe retention (seconds). Overridable via ``probe.retention_days``.
+RETENTION_SECONDS = 30 * 86400
+#: Prune at most once per day (wall clock).
+PRUNE_EVERY = 86400
+
+_local = threading.local()
+_last_prune = 0.0
+_prune_lock = threading.Lock()
 
 
 def _path() -> str:
     return str(config.state_dir() / "uptime.sqlite")
 
 
-@contextmanager
-def _db():
-    """Open, hand out, and CLOSE a connection. ``with sqlite3.connect() as c`` only commits or rolls
-    back — it never closes — so every probe leaked one handle on uptime.sqlite until the process hit
-    ``OSError: Too many open files`` (dashboard, 2026-09-12 after ~2 days: 125 open handles)."""
-    c = _conn()
+def _retention_seconds() -> int:
     try:
-        with c:
-            yield c
-    finally:
-        c.close()
+        days = int((config.load().get("probe") or {}).get("retention_days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    return max(1, days) * 86400
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(_path(), timeout=10)
+    """One live connection per thread (DDL once). Re-opens when the state-dir path changes."""
+    path = _path()
+    c = getattr(_local, "conn", None)
+    if c is not None and getattr(_local, "path", None) == path:
+        return c
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
+        _local.conn = None
+    c = sqlite3.connect(path, timeout=10)
     try:
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
@@ -44,7 +60,48 @@ def _conn() -> sqlite3.Connection:
     except BaseException:
         c.close()
         raise
+    _local.conn = c
+    _local.path = path
     return c
+
+
+@contextmanager
+def _db():
+    """Hand out the thread-local connection; commit/rollback via ``with c``, never close on success.
+
+    Closing every call used to leak FDs when combined with WAL; keeping one handle per thread
+    avoids hundreds of connect+DDL cycles per state build. On path change ``_conn`` replaces it.
+    """
+    c = _conn()
+    with c:
+        yield c
+
+
+def close_thread_connection() -> None:
+    """Test/helper: drop the thread-local handle (e.g. after switching ``state_dir``)."""
+    c = getattr(_local, "conn", None)
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
+    _local.conn = None
+    _local.path = None
+
+
+def prune_probes(now: int | None = None, force: bool = False) -> int:
+    """Delete probe rows older than retention. At most once per day unless ``force``. Returns deleted."""
+    global _last_prune
+    now = int(time.time() if now is None else now)
+    with _prune_lock:
+        if not force and _last_prune and now - _last_prune < PRUNE_EVERY:
+            return 0
+        cutoff = now - _retention_seconds()
+        with _db() as c:
+            cur = c.execute("DELETE FROM probes WHERE ts < ?", (cutoff,))
+            deleted = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        _last_prune = now
+        return deleted
 
 
 def record(service: str, up: bool, latency: float | None = None, detail: str = "",
@@ -52,6 +109,7 @@ def record(service: str, up: bool, latency: float | None = None, detail: str = "
     with _db() as c:
         c.execute("INSERT INTO probes(ts,service,up,latency,detail) VALUES(?,?,?,?,?)",
                   (int(ts if ts is not None else time.time()), service, 1 if up else 0, latency, detail))
+    prune_probes()
 
 
 def last(service: str) -> dict | None:
@@ -86,10 +144,15 @@ def uptime_seconds(service: str, min_outage: int = 3) -> int | None:
     """Seconds in the current up-streak. A *real outage* is ``min_outage`` or more consecutive
     down samples; isolated transient blips (e.g. one slow health check while the process stays up)
     do NOT reset uptime — so this reads as "time since the last real restart/outage", matching how
-    a status page reports uptime. Returns 0 if currently down, None if there's no data."""
+    a status page reports uptime. Returns 0 if currently down, None if there's no data.
+
+    Only the retention window is scanned (``WHERE ts >= ?``) so the streak is bounded by retention.
+    """
     now = int(time.time())
+    since = now - _retention_seconds()
     with _db() as c:
-        rows = c.execute("SELECT ts, up FROM probes WHERE service=? ORDER BY ts", (service,)).fetchall()
+        rows = c.execute("SELECT ts, up FROM probes WHERE service=? AND ts>=? ORDER BY ts",
+                         (service, since)).fetchall()
     if not rows:
         return None
     if not rows[-1]["up"]:

@@ -219,7 +219,7 @@ class MetricsToken(Base):
     cfg = {"dashboard": {"metrics_token": "s3cret-token"}}
 
     def test_loopback_without_token_and_remote_with_token(self):
-        with patch.object(dashboard, "_state_data", return_value={}), \
+        with patch.object(dashboard, "_cached_state", return_value=b"{}"), \
              patch.object(dashboard.metrics, "render", return_value="x 1\n"):
             self.assertEqual(self.req("GET", "/metrics")[0], 200)                 # loopback client
             with patch.object(dashboard, "_loopback_peer", return_value=False):
