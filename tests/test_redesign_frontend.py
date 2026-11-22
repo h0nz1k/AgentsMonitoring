@@ -8,7 +8,11 @@ import tempfile
 import unittest
 
 from agentsmon import dashboard
-from test_incremental_render import NODE, JSDOM, STATE, _JSDOM_OK, _JSDOM_SKIP
+
+try:
+    from test_incremental_render import NODE, JSDOM, STATE, _JSDOM_OK, _JSDOM_SKIP
+except ModuleNotFoundError:  # python -m unittest tests.test_redesign_frontend
+    from tests.test_incremental_render import NODE, JSDOM, STATE, _JSDOM_OK, _JSDOM_SKIP
 
 
 @unittest.skipIf(_JSDOM_SKIP, "node + jsdom not available")
