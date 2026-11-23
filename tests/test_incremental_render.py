@@ -10,6 +10,9 @@ from agentsmon import dashboard
 
 NODE = os.environ.get("AGENTSMON_NODE", "/home/agentops/.hermes/tools/node-26.12.1-linux-x64/bin/node")
 JSDOM = os.environ.get("AGENTSMON_JSDOM", "/home/agentops/.hermes/hermes-agent/node_modules/jsdom")
+_JSDOM_OK = os.path.exists(NODE) and os.path.isdir(JSDOM)
+# In CI, missing Node/jsdom must fail the job (not skip). Locally, skip when tools are absent.
+_JSDOM_SKIP = not _JSDOM_OK and not os.environ.get("CI")
 
 STATE = {
     "time": 1793434000,
@@ -89,8 +92,12 @@ class PageMarkup(unittest.TestCase):
         self.assertEqual(p.count("POLL"), p.count("POLL*1000"))
 
 
-@unittest.skipUnless(os.path.exists(NODE) and os.path.isdir(JSDOM), "node + jsdom not available")
+@unittest.skipIf(_JSDOM_SKIP, "node + jsdom not available")
 class IncrementalRenderJsdom(unittest.TestCase):
+    def setUp(self):
+        if os.environ.get("CI") and not _JSDOM_OK:
+            self.fail("AGENTSMON_NODE + AGENTSMON_JSDOM required when CI=true")
+
     def test_keyed_rows_keep_nodes_and_focus(self):
         with tempfile.TemporaryDirectory() as tmp:
             t = Path(tmp)

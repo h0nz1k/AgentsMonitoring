@@ -8,11 +8,19 @@ import tempfile
 import unittest
 
 from agentsmon import dashboard
-from test_incremental_render import NODE, JSDOM, STATE
+
+try:
+    from test_incremental_render import NODE, JSDOM, STATE, _JSDOM_OK, _JSDOM_SKIP
+except ModuleNotFoundError:  # python -m unittest tests.test_redesign_frontend
+    from tests.test_incremental_render import NODE, JSDOM, STATE, _JSDOM_OK, _JSDOM_SKIP
 
 
-@unittest.skipUnless(os.path.exists(NODE) and os.path.isdir(JSDOM), "node + jsdom not available")
+@unittest.skipIf(_JSDOM_SKIP, "node + jsdom not available")
 class RedesignFrontend(unittest.TestCase):
+    def setUp(self):
+        if os.environ.get("CI") and not _JSDOM_OK:
+            self.fail("AGENTSMON_NODE + AGENTSMON_JSDOM required when CI=true")
+
     def test_counts_sublimits_credit_theme_polling_and_viewer(self):
         state = copy.deepcopy(STATE)
         state["overall"].update(count_cs="1 + 1 info", total=2, critical=0, warning=1, info=1,

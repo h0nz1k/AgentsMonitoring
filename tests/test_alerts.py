@@ -14,7 +14,8 @@ TZ = ZoneInfo("Europe/Prague")
 # 31.10.2026 12:00 Prague; the 7d window resets 04.11 07:02 Prague.
 NOW = int(datetime(2026, 10, 31, 12, 0, tzinfo=TZ).timestamp())
 RESET = int(datetime(2026, 11, 4, 7, 2, tzinfo=TZ).timestamp())
-CFG = dict(alerts.DEFAULTS, timezone="Europe/Prague", digest_seconds=0, quiet_hours=[])   # 1 tick → 1 digest
+CFG = dict(alerts.DEFAULTS, timezone="Europe/Prague", digest_seconds=0, quiet_hours=[],
+           dashboard_url="http://192.168.1.153:8765")   # 1 tick → 1 digest
 
 
 def item(used, reset_at=RESET, source="Codex · agentops", label="7d"):
@@ -64,16 +65,17 @@ class Settings(unittest.TestCase):
         self.assertEqual(s["forecast_min_lead_seconds"], 1800)
         self.assertTrue(s["notify_on_model_change"])
         self.assertFalse(s["dry_run"])
-        self.assertEqual(s["command"], ["hermes", "--profile", "lana", "send", "-q"])
+        self.assertEqual(s["command"], ["hermes", "send", "-q"])
+        self.assertEqual(s["dashboard_url"], "")
         self.assertNotIn("-t", s["command"])   # the target is appended once, by build_command
         self.assertEqual(s["target"], "telegram")
         self.assertEqual(alerts.settings({"alerts": {"thresholds": [50], "dry_run": True}})["thresholds"], [50])
 
     def test_command_appends_message_last(self):
         cmd = alerts.build_command(alerts.settings({}), "ahoj")
-        self.assertEqual(cmd, ["hermes", "--profile", "lana", "send", "-q", "-t", "telegram", "ahoj"])
+        self.assertEqual(cmd, ["hermes", "send", "-q", "-t", "telegram", "ahoj"])
         cmd = alerts.build_command(alerts.settings({"alerts": {"target": "telegram:42"}}), "m")
-        self.assertEqual(cmd, ["hermes", "--profile", "lana", "send", "-q", "-t", "telegram:42", "m"])
+        self.assertEqual(cmd, ["hermes", "send", "-q", "-t", "telegram:42", "m"])
         cmd = alerts.build_command(dict(alerts.DEFAULTS, command=["x", "send", "-t", "own"]), "m")
         self.assertEqual(cmd, ["x", "send", "-t", "own", "m"])
         cmd = alerts.build_command(dict(alerts.DEFAULTS, command=["x", "send"], target="telegram:1"), "m")
@@ -224,7 +226,8 @@ class ForecastGates(Base):
         self.assertEqual(len(self.sent), 1)
 
 
-DIGEST = dict(alerts.DEFAULTS, timezone="Europe/Prague", quiet_hours=["22:00", "07:00"])
+DIGEST = dict(alerts.DEFAULTS, timezone="Europe/Prague", quiet_hours=["22:00", "07:00"],
+              dashboard_url="http://192.168.1.153:8765")
 
 
 class Digest(Base):

@@ -240,7 +240,8 @@ def observe(tables: list, agents: list, now: float | None = None) -> list:
         _lock.release()
 
 
-COMPACT = ("exhaust_at", "projected_at_reset", "will_exhaust_before_reset", "rate_pct_per_hour")
+COMPACT = ("exhaust_at", "projected_at_reset", "will_exhaust_before_reset", "rate_pct_per_hour",
+           "actionable", "span_seconds")
 
 
 def annotate(tables: list, agents: list, resets: list, forecasts: list) -> None:
