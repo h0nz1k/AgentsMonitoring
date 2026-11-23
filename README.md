@@ -301,6 +301,33 @@ username + password (defaulting to *yes* whenever you bind it to anything other 
 If enabled, the dashboard requires HTTP Basic auth; the password is stored only as a SHA-256
 hash (`dashboard.auth.pwhash`), never in plaintext. Remove the `auth` block to turn it off.
 
+**Home Assistant (read-only summary).** With Tailscale Serve auth
+(`dashboard.auth_mode: "tailscale"`), list Tailscale node names in
+`dashboard.ha_readonly_nodes` (default `[]` = endpoint off, HTTP 404). Those nodes get role
+`ha-readonly` and may call only `GET /api/ha/summary` — a small allowlisted JSON built from the
+cached dashboard state (no rebuild on request, no actions, paths, session IDs, or secrets).
+Example REST sensor (replace the Serve hostname; do not put secrets in YAML):
+
+```yaml
+rest:
+  - resource: https://agentsmon.example.ts.net/api/ha/summary
+    scan_interval: 60
+    timeout: 15
+    sensor:
+      - name: AgentsMon overall
+        value_template: "{{ value_json.overall }}"
+        json_attributes:
+          - attention_count
+          - critical_count
+          - quotas
+          - agents
+          - services
+          - queue
+          - generated_at
+          - stale
+          - schema
+```
+
 - **services[]** — components you want **uptime history + SLA** for (a gateway, a bridge, a
   daemon): each has a `name` (its dashboard card title), a `process` pattern and/or a
   `health_url`. The dashboard probes them on `probe.interval_seconds`, stores samples in a local
