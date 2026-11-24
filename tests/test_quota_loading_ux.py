@@ -15,9 +15,12 @@ class OverallWhileLoading(unittest.TestCase):
     def test_partial_tables_cannot_claim_overall_ok(self):
         _, ov = dashboard.compute_attention({"plugin_loading": False, "agent_tables": [], "agents": [], "services": []})
         self.assertEqual(ov["level"], "ok")
+        # #102 bod 0: once any tables exist (first successful publish / retain), plugin_loading
+        # must not force global loading — overall follows real attention items.
         _, ov = dashboard.compute_attention({"plugin_loading": True, "agent_tables": [{"id": "t", "rows": []}],
                                              "agents": [], "services": []})
-        self.assertEqual(ov["level"], "loading")
+        self.assertNotEqual(ov["level"], "loading")
+        self.assertEqual(ov["level"], "ok")
 
     def test_ui_has_loading_ring(self):
         self.assertIn('lv==="loading"', dashboard.INDEX_HTML if hasattr(dashboard, "INDEX_HTML") else

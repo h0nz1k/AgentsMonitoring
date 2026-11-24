@@ -51,7 +51,9 @@ class StateCache(unittest.TestCase):
             self.assertLess(time.monotonic()-t0, .1)
             self.assertEqual(state['marker'], 'disk')
             self.assertTrue(state['stale'])
-            self.assertEqual(state['overall']['level'], 'loading')
+            # #102 bod 0: disk snapshot is a prior successful build — keep overall, never loading.
+            self.assertNotEqual(state['overall']['level'], 'loading')
+            self.assertEqual(state['overall']['level'], 'ok')
             row = state['agent_tables'][0]['rows'][0]
             self.assertNotIn('row_actions', row)
             self.assertTrue(row['actions_locked'])
@@ -127,7 +129,8 @@ class StateCache(unittest.TestCase):
         self.assertEqual(len(kept['agent_tables']), 1)
         self.assertTrue(kept['agent_tables'][0]['stale'])
         self.assertNotIn('row_actions', kept['agent_tables'][0]['rows'][0])
-        self.assertEqual(kept['overall']['level'], 'loading')
+        # #102 bod 0: retained tables after a prior publish → not global loading.
+        self.assertNotEqual(kept['overall']['level'], 'loading')
         kept['agent_tables'][0]['rows'][0]['snapshot_at'] = time.time()-601
         fresh = {'agent_tables': [], 'plugins': [{'id': 'slow', 'loading': True}]}
         self.assertEqual(d._retain_pending_tables(fresh, kept, 0)['agent_tables'], [])

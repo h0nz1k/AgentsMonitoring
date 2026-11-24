@@ -247,15 +247,27 @@ def _session_cwd(name: str) -> str | None:
 
 
 def _rollout_model(path: str) -> str | None:
-    """The model a Codex session actually ran, from its rollout (turn_context records it even
-    when ~/.codex/config.toml doesn't set one). Reads only the head of the file."""
+    """The model a Codex session is actually running, from its rollout.
+
+    ``turn_context`` / early session records store ``model`` even when
+    ``~/.codex/config.toml`` is unset. Prefer the *latest* value (tail), because a mid-session
+    ``/model`` switch or a config bump leaves the old id in the head of a long rollout —
+    that is what made LANA still show GPT-6.1 Sol after the live session moved to 6.2.
+    """
     try:
-        with open(path, encoding="utf-8") as fh:
-            head = "".join(fh.readline() for _ in range(60))
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if size > 65536:
+                fh.seek(size - 65536)
+            data = fh.read().decode("utf-8", errors="ignore")
     except OSError:
         return None
-    found = re.findall(r'"model"\s*:\s*"([^"]+)"', head)   # exact "model" key, not model_provider
-    return _pretty_model(found[-1]) if found else None
+    # Exact "model" key only — never model_provider / model_reasoning_*.
+    found = re.findall(r'"model"\s*:\s*"([^"]+)"', data)
+    for raw in reversed(found):
+        if raw and "provider" not in raw.lower():
+            return _pretty_model(raw)
+    return None
 
 
 def _codex_info_for_cwd(cwd: str) -> tuple[str | None, str | None]:
@@ -875,8 +887,9 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
         kind, label, sid = row['kind'], row['label'], row['session_id']
         ranked = row['commands']
         if kind == "codex":
+            # Live session first: latest rollout turn, then launch argv, then cwd/config fallbacks.
             model = ((_rollout_model(row['transcript']) if row['transcript'] else None)
-                     or row.get('resolved_model') or _model_from_argv(ranked) or codex_model)
+                     or _model_from_argv(ranked) or row.get('resolved_model') or codex_model)
             if model:
                 label = model
         if kind == "claude-code":
