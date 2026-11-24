@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Home Assistant: read-only `GET /api/ha/summary` from the state cache, gated by
+  `dashboard.ha_readonly_nodes` (Tailscale node / login → role `ha-readonly`, no `/api/state` or actions).
 - Dashboard: safe `restart_gateway` from a Telegram-lane outage (attention + lane service + LANA Hermes row), with step-up warning, Telegram getMe precheck, 10-minute cooldown, actions.jsonl audit, and post-restart lane watch.
 
 ## v0.3.14-lazy-first-load (candidate)

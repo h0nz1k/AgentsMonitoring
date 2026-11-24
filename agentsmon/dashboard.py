@@ -28,7 +28,7 @@ import subprocess
 import threading
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import alerts, config, db, detect, keepalive, metrics, probe, plugins, quota, workqueue
@@ -252,12 +252,32 @@ def _loopback_peer(ip) -> bool:
 # Roles: dashboard.admins (logins) -> admin; other logins -> viewer when dashboard.viewers holds
 # "*" or the login, otherwise 403. A loopback request WITHOUT identity and without proxy headers
 # (local scripts curling /api/state, /metrics) -> read-only viewer. A *proxied* request without
-# identity (tagged device, Funnel) gets no access at all.
+# identity (tagged device, Funnel) gets no access at all — unless the client Tailscale node name
+# (LocalAPI/CLI whois on X-Forwarded-For) is listed in dashboard.ha_readonly_nodes, which grants
+# role ``ha-readonly`` for GET /api/ha/summary only. Tailscale-User-Login matching that list also
+# maps to ha-readonly (tests and user-owned devices). Empty ha_readonly_nodes disables the endpoint
+# (404).
 
 TS_LOGIN, TS_NAME = "Tailscale-User-Login", "Tailscale-User-Name"
-ROLE_CS = {"admin": "správce", "viewer": "čtenář"}
+ROLE_CS = {"admin": "správce", "viewer": "čtenář", "ha-readonly": "HA (jen čtení)"}
 AUTH_MODES = ("basic", "tailscale")
 _PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "Tailscale-Funnel-Request")
+HA_SUMMARY_SCHEMA = 1
+HA_SUMMARY_PATH = "/api/ha/summary"
+HA_SUMMARY_KEYS = frozenset({
+    "schema", "overall", "attention_count", "critical_count", "quotas", "agents", "services",
+    "queue", "generated_at", "stale",
+})
+HA_QUOTA_KEYS = frozenset({
+    "provider", "window", "used_pct", "remaining_pct", "reset_at", "exhausted",
+    "will_exhaust_before_reset",
+})
+HA_AGENT_KEYS = frozenset({"name", "model_label", "alive", "waiting"})
+HA_SERVICE_KEYS = frozenset({"name", "state", "sla_24h"})
+HA_QUEUE_KEYS = frozenset({"pending", "running", "blocked", "review"})
+_whois_lock = threading.Lock()
+_whois_cache: dict[str, tuple[float, str | None]] = {}
+WHOIS_CACHE_SECONDS = 60.0
 
 
 def check_auth_mode(host: str, dcfg: dict) -> str:
@@ -276,6 +296,11 @@ def _login_set(values) -> set:
     return {v.strip().lower() for v in values or [] if isinstance(v, str) and v.strip()}
 
 
+def ha_readonly_nodes(dcfg: dict) -> set:
+    """Normalised Tailscale node names allowed to call ``/api/ha/summary`` as ha-readonly."""
+    return _login_set(dcfg.get("ha_readonly_nodes"))
+
+
 def _decode_display_name(value: str) -> str:
     try:
         from email.header import decode_header, make_header
@@ -285,8 +310,81 @@ def _decode_display_name(value: str) -> str:
     return "".join(c for c in value if c.isprintable())[:120]
 
 
+def _forwarded_client_ip(headers) -> str | None:
+    """First X-Forwarded-For hop (Tailscale Serve puts the tailnet client there)."""
+    raw = headers.get("X-Forwarded-For") or ""
+    if not raw:
+        return None
+    hop = raw.split(",", 1)[0].strip()
+    if not hop or len(hop) > 64:
+        return None
+    try:
+        return str(ipaddress.ip_address(hop.split("%", 1)[0]))
+    except ValueError:
+        return None
+
+
+def _node_name_candidates(payload: dict) -> list[str]:
+    """Short names from a Tailscale whois JSON payload (CLI or LocalAPI shape)."""
+    out: list[str] = []
+    node = payload.get("Node") if isinstance(payload.get("Node"), dict) else payload
+    if not isinstance(node, dict):
+        return out
+    hi = node.get("Hostinfo") if isinstance(node.get("Hostinfo"), dict) else {}
+    for key in ("HostName", "Hostname", "Name"):
+        for src in (node, hi):
+            val = src.get(key)
+            if isinstance(val, str) and val.strip():
+                out.append(val.strip())
+    dns = node.get("DNSName")
+    if isinstance(dns, str) and dns.strip():
+        out.append(dns.strip().rstrip(".").split(".", 1)[0])
+    seen, uniq = set(), []
+    for n in out:
+        low = n.lower()
+        if low not in seen:
+            seen.add(low)
+            uniq.append(n)
+    return uniq
+
+
+def resolve_tailscale_node(ip: str) -> str | None:
+    """Best-effort Tailscale node hostname for a tailnet IP. Cached; never raises."""
+    if not ip:
+        return None
+    now = time.monotonic()
+    with _whois_lock:
+        hit = _whois_cache.get(ip)
+        if hit and now - hit[0] < WHOIS_CACHE_SECONDS:
+            return hit[1]
+    name = None
+    try:
+        proc = subprocess.run(
+            ["tailscale", "whois", "--json", ip],
+            capture_output=True, text=True, timeout=1.5, check=False)
+        if proc.returncode == 0 and proc.stdout.strip():
+            payload = json.loads(proc.stdout)
+            cands = _node_name_candidates(payload if isinstance(payload, dict) else {})
+            name = cands[0] if cands else None
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
+        name = None
+    with _whois_lock:
+        _whois_cache[ip] = (now, name)
+    return name
+
+
+def _ha_readonly_match(name: str | None, nodes: set) -> str | None:
+    if not name or not nodes:
+        return None
+    low = name.strip().lower()
+    if low in nodes:
+        return name.strip()
+    short = low.split(".", 1)[0]
+    return name.strip() if short in nodes else None
+
+
 def tailscale_identity(headers, peer, dcfg: dict) -> dict:
-    """Resolve the caller: ``{"role": "admin"|"viewer"|None, "user", "name", "source", "reason"}``.
+    """Resolve the caller: ``{"role": "admin"|"viewer"|"ha-readonly"|None, "user", "name", "source", "reason"}``.
     ``role`` None means: refuse (403)."""
     if not _loopback_peer(peer):
         return {"role": None, "user": None, "name": "", "source": "remote", "reason": "peer"}
@@ -294,8 +392,15 @@ def tailscale_identity(headers, peer, dcfg: dict) -> dict:
     login = logins[0].strip() if len(logins) == 1 else ""
     if len(logins) > 1 or (logins and (not login or len(login) > 254 or not login.isprintable())):
         return {"role": None, "user": None, "name": "", "source": "tailscale", "reason": "identity"}
+    nodes = ha_readonly_nodes(dcfg)
     if not login:
         if any(headers.get(h) for h in _PROXY_HEADERS):
+            if nodes:
+                ip = _forwarded_client_ip(headers)
+                matched = _ha_readonly_match(resolve_tailscale_node(ip) if ip else None, nodes)
+                if matched:
+                    return {"role": "ha-readonly", "user": matched, "name": matched,
+                            "source": "tailscale-node", "reason": None}
             return {"role": None, "user": None, "name": "", "source": "proxy", "reason": "identity"}
         return {"role": "viewer", "user": None, "name": "", "source": "loopback", "reason": None}
     name = _decode_display_name(headers.get(TS_NAME) or "")
@@ -303,6 +408,8 @@ def tailscale_identity(headers, peer, dcfg: dict) -> dict:
     viewers = _login_set(dcfg.get("viewers"))
     if low in _login_set(dcfg.get("admins")):
         role = "admin"
+    elif _ha_readonly_match(login, nodes):
+        role = "ha-readonly"
     elif "*" in viewers or low in viewers:
         role = "viewer"
     else:
@@ -2216,6 +2323,8 @@ SNAPSHOT_MAX_AGE_SECONDS = 900.0
 #: Idle background rebuild cadence. Open browsers poll and trigger fresher rebuilds themselves;
 #: a 1 s loop would rebuild the state (~2 s CPU) and re-run plugin subprocesses non-stop on a shared host.
 BACKGROUND_REFRESH_SECONDS = 30
+#: HA summary ``stale`` when cache age exceeds twice the idle background refresh interval.
+HA_STALE_AFTER_SECONDS = 2 * BACKGROUND_REFRESH_SECONDS
 _state_lock = threading.Lock()
 _state_cache: tuple | None = None
 _state_building = False
@@ -2362,6 +2471,128 @@ def invalidate_state_cache() -> None:
         _state_generation += 1
         _state_disk_checked = True
         _state_from_disk = False
+
+
+def _peek_cached_state(clock=time.monotonic) -> tuple[dict, float]:
+    """Return ``(state_dict, age_seconds)`` from memory/disk without starting a rebuild."""
+    global _state_cache, _state_disk_checked, _state_from_disk
+    with _state_lock:
+        if not _state_disk_checked:
+            _state_disk_checked = True
+            if _state_cache is None:
+                _state_cache = _read_snapshot()
+                _state_from_disk = _state_cache is not None
+        cache = _state_cache
+        age = max(0.0, clock() - cache[0]) if cache else 0.0
+        data = json.loads(cache[1]) if cache else _loading_state()
+        return data, age
+
+
+def _iso_utc(ts) -> str | None:
+    if type(ts) not in (int, float):
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def build_ha_summary(data: dict, age: float, *, now: float | None = None) -> dict:
+    """Stable allowlisted JSON for Home Assistant REST sensors (no actions, paths, or secrets)."""
+    now = time.time() if now is None else now
+    ov = data.get("overall") if isinstance(data.get("overall"), dict) else {}
+    level = ov.get("level") if ov.get("level") in ("ok", "warning", "critical", "loading") else "loading"
+    attention = data.get("attention") if isinstance(data.get("attention"), list) else []
+    critical_count = sum(1 for a in attention if isinstance(a, dict) and a.get("severity") == "critical")
+    attention_count = sum(1 for a in attention if isinstance(a, dict) and a.get("severity") in ("critical", "warning"))
+    if attention_count == 0 and type(ov.get("count")) is int:
+        attention_count = max(0, ov["count"])
+    forecasts = {}
+    for f in data.get("forecasts") or []:
+        if isinstance(f, dict) and f.get("source") and f.get("label"):
+            forecasts[(str(f["source"]), str(f["label"]))] = f
+    quotas = []
+    for item in quota.series(data.get("agent_tables") or [], data.get("agents") or []):
+        used = item.get("used")
+        if used is None:
+            continue
+        used_f = float(used)
+        rem = None
+        # Prefer remaining from the live bar when series came from a table row.
+        for t in data.get("agent_tables") or []:
+            for r in t.get("rows") or []:
+                if str(r.get("name") or "") != item["source"]:
+                    continue
+                for cell in (r.get("cells") or {}).values():
+                    for b in (cell or {}).get("bars") or []:
+                        if str(b.get("label") or "") != item["label"]:
+                            continue
+                        if type(b.get("remaining")) in (int, float):
+                            rem = float(b["remaining"])
+        if rem is None:
+            rem = max(0.0, 100.0 - used_f)
+        fc = forecasts.get((item["source"], item["label"])) or {}
+        quotas.append({
+            "provider": item["source"],
+            "window": item["label"],
+            "used_pct": round(used_f, 2),
+            "remaining_pct": round(float(rem), 2),
+            "reset_at": _iso_utc(item.get("reset_at")),
+            "exhausted": bool(used_f >= 100.0 or fc.get("exhausted")),
+            "will_exhaust_before_reset": bool(fc.get("will_exhaust_before_reset")),
+        })
+    agents = []
+    for a in data.get("agents") or []:
+        if not isinstance(a, dict) or not a.get("name"):
+            continue
+        agents.append({
+            "name": str(a["name"]),
+            "model_label": str(a.get("label") or a.get("tag") or a.get("kind") or ""),
+            "alive": bool(a.get("alive")),
+            "waiting": bool(a.get("waiting")),
+        })
+    services = []
+    for s in data.get("services") or []:
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+        sla = s.get("sla")
+        services.append({
+            "name": str(s["name"]),
+            "state": str(s.get("state") or "nodata"),
+            "sla_24h": round(float(sla), 2) if type(sla) in (int, float) else None,
+        })
+    qd = data.get("queue") if isinstance(data.get("queue"), dict) else {}
+    sm = qd.get("summary") if isinstance(qd.get("summary"), dict) else {}
+
+    def _n(key):
+        v = sm.get(key)
+        return int(v) if type(v) is int else 0
+
+    pending = _n("queued")
+    review = _n("awaiting_pickup")
+    gen = data.get("time")
+    generated_at = _iso_utc(gen) if type(gen) in (int, float) else _iso_utc(now)
+    stale = bool(data.get("stale") or data.get("loading") or age > HA_STALE_AFTER_SECONDS)
+    return {
+        "schema": HA_SUMMARY_SCHEMA,
+        "overall": level,
+        "attention_count": int(attention_count),
+        "critical_count": int(critical_count),
+        "quotas": quotas,
+        "agents": agents,
+        "services": services,
+        "queue": {
+            "pending": pending,
+            "running": _n("running"),
+            "blocked": _n("blocked"),
+            "review": review,
+        },
+        "generated_at": generated_at,
+        "stale": stale,
+    }
+
+
+def ha_summary_bytes(clock=time.monotonic, now: float | None = None) -> bytes:
+    """Serve the HA summary strictly from cache (never triggers ``_state`` / rebuild)."""
+    data, age = _peek_cached_state(clock=clock)
+    return json.dumps(build_ha_summary(data, age, now=now), ensure_ascii=False).encode()
 
 
 def _state_data() -> dict:
@@ -3218,12 +3449,21 @@ def make_server(host: str, port: int, cfg: dict):
             return (page.replace(b"__AGENTSMON_ROLE__", role.encode())
                         .replace(b"__AGENTSMON_WHO__", _html.escape(_clip(who, 300)).encode()))
 
+        def _ha_forbidden(self):
+            msg = "Tento uzel smí jen read-only souhrn /api/ha/summary (role ha-readonly)."
+            self._audit(403, "rejected", "ha-readonly")
+            self._reply(403, json.dumps({"ok": False, "error": "forbidden", "message": msg},
+                                        ensure_ascii=False).encode())
+
         def do_GET(self):
             self._audit_user = None
             if not self._host_ok():
                 return
             if not self._identify():
                 return
+            path = urlsplit(self.path).path
+            if self._ident["role"] == "ha-readonly" and path != HA_SUMMARY_PATH:
+                return self._ha_forbidden()
             is_metrics = self.path == "/metrics" or self.path.startswith("/metrics?")
             bearer = False
             if is_metrics and metrics_token:
@@ -3235,6 +3475,13 @@ def make_server(host: str, port: int, cfg: dict):
             if not bearer and auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
                                                                        auth_user, auth_hash):
                 return self._denied()
+            if path == HA_SUMMARY_PATH:
+                if not ha_readonly_nodes(dcfg):
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                return self._resource(ha_summary_bytes(), "application/json", "private, no-cache")
             if self.path == "/api/whoami":
                 i = self._ident
                 body = json.dumps({"user": i["user"], "name": i["name"] or None, "role": i["role"],
@@ -3250,8 +3497,8 @@ def make_server(host: str, port: int, cfg: dict):
                 self.send_header("Content-Type", metrics.CONTENT_TYPE)
             elif self.path == "/" or self.path.startswith("/index"):
                 return self._resource(self._page(), "text/html; charset=utf-8")
-            elif urlsplit(self.path).path in _STATIC_ASSETS:
-                body, ctype = _STATIC_ASSETS[urlsplit(self.path).path]
+            elif path in _STATIC_ASSETS:
+                body, ctype = _STATIC_ASSETS[path]
                 return self._resource(body, ctype, "public, no-cache")
             else:
                 self.send_response(404)
@@ -3268,6 +3515,8 @@ def make_server(host: str, port: int, cfg: dict):
                 return
             if not self._identify():
                 return
+            if self._ident["role"] == "ha-readonly":
+                return self._ha_forbidden()
             if not limiter.allow(self._ident["user"] or self.client_address[0]):
                 return self._post_fail(429, "rate-limit", "Příliš mnoho akcí za sebou – zkuste to za chvíli.",
                                        extra=(("Retry-After", "10"),))
