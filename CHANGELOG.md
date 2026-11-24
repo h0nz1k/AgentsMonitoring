@@ -2,8 +2,17 @@
 
 ## Unreleased
 
+- Plugins: `plugin_loading` / overall „Načítám…“ only on first successful snapshot; periodic
+  refresh keeps a valid cache (stale, not loading). Freshness TTL from plugin
+  `refresh_seconds` / `interval_seconds` (else derived from collect timeout).
+- Probes: yellow `pending` after 1…N−1 consecutive fails (services, pinned daemons, agents);
+  confirmed `outage` only after `min_outage_samples`.
+- Uptime DB: idempotent `probes_daily` rollup; SLA/timeline prefer daily aggregates; maintenance
+  windows excluded from SLA; incidents list under the timeline; continuous timeline colours;
+  24 h latency sparkline on service rows.
+- Attention: admin can mute a „K řešení“ item for N hours (CSRF/`X-Agentsmon` + actions.jsonl).
 - Home Assistant: read-only `GET /api/ha/summary` from the state cache, gated by
-  `dashboard.ha_readonly_nodes` (Tailscale node / login → role `ha-readonly`, no `/api/state` or actions).
+ `dashboard.ha_readonly_nodes` (Tailscale node / login → role `ha-readonly`, no `/api/state` or actions).
 - Dashboard: safe `restart_gateway` from a Telegram-lane outage (attention + lane service + LANA Hermes row), with step-up warning, Telegram getMe precheck, 10-minute cooldown, actions.jsonl audit, and post-restart lane watch.
 
 ## v0.3.14-lazy-first-load (candidate)

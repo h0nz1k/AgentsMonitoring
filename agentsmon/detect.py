@@ -89,17 +89,29 @@ _ALIVE_FAILS: dict[str, int] = {}
 _ALIVE_SEEN_UP: set[str] = set()
 
 
-def _debounce_alive(name: str, raw_ok: bool, min_outage: int) -> bool:
-    """Stay green through transient blips; flip to down only after ``min_outage`` consecutive fails."""
+def _debounce_state(name: str, raw_ok: bool, min_outage: int) -> str:
+    """``operational`` | ``pending`` | ``outage`` — Uptime Kuma style retries.
+
+    After a prior success, the first ``min_outage - 1`` consecutive fails stay yellow
+    (``pending``); only then flip to ``outage``. Never-seen-up fails go straight to outage.
+    """
     key = str(name or "")
+    need = max(1, int(min_outage))
     if raw_ok:
         _ALIVE_FAILS[key] = 0
         _ALIVE_SEEN_UP.add(key)
-        return True
+        return "operational"
     _ALIVE_FAILS[key] = _ALIVE_FAILS.get(key, 0) + 1
     if key not in _ALIVE_SEEN_UP:
-        return False
-    return _ALIVE_FAILS[key] < max(1, int(min_outage))
+        return "outage"
+    if _ALIVE_FAILS[key] < need:
+        return "pending"
+    return "outage"
+
+
+def _debounce_alive(name: str, raw_ok: bool, min_outage: int) -> bool:
+    """True while operational or pending — keepalive must not restart during yellow retries."""
+    return _debounce_state(name, raw_ok, min_outage) != "outage"
 
 
 def pinned_agents(pinned: list[dict], min_outage: int = 3) -> list[dict]:
@@ -143,7 +155,8 @@ def pinned_agents(pinned: list[dict], min_outage: int = 3) -> list[dict]:
                 raw_alive = managed.active(d['manager']) is True
             else:
                 raw_alive = bool(pids)
-        alive = _debounce_alive(d.get("name"), raw_alive, min_outage)
+        state = _debounce_state(d.get("name"), raw_alive, min_outage)
+        alive = state != "outage"
         # Concrete model detected LIVE (so it stays current without rebuilding config); an
         # explicit config tag/vendor still wins if set.
         model = daemon_model(d.get("name", ""), d.get("hermes_profile"))
@@ -152,7 +165,7 @@ def pinned_agents(pinned: list[dict], min_outage: int = 3) -> list[dict]:
             "label": d.get("tag") or model or d.get("name"),
             "vendor": d.get("vendor") or vendor_for_agent(None, model),
             "name_color": d.get("name_color"),
-            "session_id": None, "alive": alive, "age": age, "latency_ms": lat,
+            "session_id": None, "alive": alive, "state": state, "age": age, "latency_ms": lat,
             "health_url": health_url,
             "port": _daemon_port(health_url) if (health_url and alive) else None,
             # A second row of a shared process (e.g. one Hermes gateway, two profiles) must not

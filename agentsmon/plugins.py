@@ -354,7 +354,13 @@ class Manager:
         self._pending.discard(plugin.id)
 
     def snapshot(self,agents):
-        """Independent refresh and stale lifetime for every plugin. Never wait on a worker."""
+        """Independent refresh and stale lifetime for every plugin. Never wait on a worker.
+
+        ``loading`` / overall ``result['loading']`` is true only while a plugin has never
+        published a successful snapshot (first fetch). A periodic refresh over a valid
+        cache marks data stale but must not flip the dashboard back to "Načítám…".
+        Freshness TTL comes from the plugin's refresh/interval setting (else timeout).
+        """
         context=self._context(agents)
         signature=self._agent_signature(context)
         now=time.monotonic()
@@ -365,8 +371,9 @@ class Manager:
                 pid=plugin.id
                 cached=self._snapshots.get(pid)
                 last=self._errors.get(pid)
-                fresh=cached and cached[0]==signature and now-cached[1]<10 and not last
-                retry=not last or now-last[0]>=10
+                ttl=_refresh_ttl(plugin)
+                fresh=cached and cached[0]==signature and now-cached[1]<ttl and not last
+                retry=not last or now-last[0]>=ttl
                 if not fresh and pid not in self._pending and retry:
                     self._pending.add(pid)
                     def refresh(p=plugin):
@@ -374,14 +381,16 @@ class Manager:
                         with self._snapshot_lock:
                             self._record(p,signature,data,error)
                     threading.Thread(target=refresh,daemon=True,name='agentsmon-plugin-'+pid).start()
-                loading=pid in self._pending
+                # First load only — a successful cache keeps the UI out of "loading".
+                loading=cached is None and pid in self._pending
                 error=last[1] if last else ''
                 result['plugins'].append({'id':pid,'version':plugin.version,'api_version':1,
                                           'loading':loading,'error':error})
                 result['loading'] |= loading
                 if error: result['errors'].append({'name':'Plugin '+pid+' failed','detail':error})
+                refreshing=pid in self._pending
                 if cached and now-cached[1]<MAX_STALE_SECONDS:
-                    data=_stale_snapshot(cached[2],now-cached[1]) if loading or error else cached[2]
+                    data=_stale_snapshot(cached[2],now-cached[1]) if refreshing or error else cached[2]
                     for key in ('tables','columns','patches','hidden_sessions','hidden_services'):
                         result[key].extend(copy.deepcopy(data.get(key,[])))
             return result
@@ -423,6 +432,31 @@ def manager(cfg):
 #: How long the last good plugin snapshot may be shown (marked stale, read-only) while a refresh runs.
 #: Beyond this the dashboard shows no plugin data at all rather than old numbers.
 MAX_STALE_SECONDS=600
+#: Floor for derived refresh TTL when a plugin does not declare ``refresh_seconds``.
+DEFAULT_REFRESH_SECONDS=30
+
+
+def _refresh_ttl(plugin):
+    """Seconds a successful snapshot stays 'fresh' before a background refresh is scheduled.
+
+    Prefer an explicit plugin setting (``refresh_seconds`` / ``interval_seconds``); otherwise
+    derive from the collect timeout so a slow plugin (e.g. 15 s) is not treated as stale the
+    moment its worker is still running.
+    """
+    settings=getattr(plugin,'settings',None) or {}
+    for key in ('refresh_seconds','interval_seconds'):
+        raw=settings.get(key) if isinstance(settings,dict) else None
+        if raw is None:
+            continue
+        try:
+            return max(5.0,float(raw))
+        except (TypeError,ValueError):
+            pass
+    try:
+        timeout=float(getattr(plugin,'timeout',3) or 3)
+    except (TypeError,ValueError):
+        timeout=3.0
+    return max(float(DEFAULT_REFRESH_SECONDS),timeout*3.0)
 
 
 def _stale_snapshot(result,age):
@@ -438,7 +472,8 @@ def _stale_snapshot(result,age):
             r['actions_locked']=True
     for p in out.get('patches',[]):
         if isinstance(p,dict): p.pop('row_actions',None)
-    out['loading']=True
+    # Stale refresh must not look like a first-load; callers gate overall loading separately.
+    out['loading']=False
     out['stale_seconds']=int(age)
     return out
 

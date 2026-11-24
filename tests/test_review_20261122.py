@@ -218,8 +218,10 @@ class M12CiFrontend(unittest.TestCase):
 
 
 class MinorFixes(unittest.TestCase):
-    def test_timeline_green_is_99(self):
-        self.assertIn("const GREEN=99", dashboard.PAGE)
+    def test_timeline_uses_continuous_colour(self):
+        # #90: continuous statuspage-style colouring replaced the binary GREEN=99 cut.
+        self.assertIn("timelineColor", dashboard.PAGE)
+        self.assertNotIn("const GREEN=99", dashboard.PAGE)
 
     def test_actions_jsonl_rotates(self):
         src = inspect.getsource(gw.log_action)
