@@ -932,7 +932,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .svc-head{border:0!important;background:transparent!important;padding:4px 0!important;gap:8px;margin-bottom:12px}.svc-head h2{font-size:18px}.svc-head .agents-count{font-size:12px}.svc-head .svc-dot{display:none}
 .quota-cards{display:grid;grid-template-columns:1fr;gap:16px}.quota-card{padding:18px;border-radius:20px;background:var(--card);border-color:var(--line);gap:8px}.qc-head{display:flex;align-items:center;flex-wrap:nowrap;gap:10px}.provider-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;flex:0 0 auto;background:linear-gradient(135deg,#455dc1,#8b63c4);color:#fff;font-size:14px;font-weight:700}.provider-avatar.anthropic{background:linear-gradient(135deg,#b65737,#96614d)}.provider-avatar.openai{background:linear-gradient(135deg,#19745c,#348879)}.provider-avatar.google{background:linear-gradient(135deg,#3c66ba,#7e58bb)}.provider-logo{display:inline-block;width:24px;height:24px;object-fit:contain;filter:invert(1)}.agent-provider-fallback{margin-right:5px}.agent-provider-logo{display:inline-block;width:14px;height:14px;object-fit:contain;vertical-align:-2px;margin-right:5px}:root[data-theme="dark"] .agent-provider-logo{filter:invert(1)}.provider-name{flex:1;min-width:0}.qc-name{display:block;font-size:16px;line-height:1.3;font-weight:650}.plan-label{display:block;color:var(--muted);font-size:12px}.provider-status{font-size:12px;font-weight:600;border-radius:9px;padding:5px 7px;background:var(--track);max-width:112px;text-align:center;line-height:1.3}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}.qc-users,.quota-legend{color:var(--muted);font-size:12px}.quota-legend{margin-top:4px}.qc-wins{display:block}.limit-row{display:flex;align-items:center;gap:14px;padding:14px 0}.limit-row+.limit-row{border-top:1px solid var(--line)}.limit-ring{width:72px;height:72px;flex:0 0 72px;border-radius:50%;background:conic-gradient(currentColor var(--remaining),var(--track) 0);position:relative;display:grid;place-items:center}.limit-ring::before{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.limit-ring span{position:relative;color:var(--tx);font-size:16px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}.limit-copy{min-width:0;flex:1}.limit-copy b{font-size:14px;color:var(--tx)}.limit-reset{font-size:12px;color:var(--muted);margin-top:3px}.verdict{font-size:12px;line-height:1.5;margin-top:4px}.sub-limit{margin:0 0 12px 36px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:12px}.credit-meta{padding:14px;background:var(--bg);border-radius:12px;font-size:13px;color:var(--muted)}.credit-pace{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.credit-pace b{display:block;color:var(--tx);font-size:14px}.pod{color:var(--muted)}.pod>summary{display:flex;align-items:center;color:var(--info)}
 .bg-white{background:var(--card)!important}.border-slate-100,.border-slate-200{border-color:var(--line)!important}.text-slate-400,.text-slate-300,.text-slate-500,.text-slate-600,.qc-users,.win-type,.win-fc,.q-who,.q-age,.q-extra,.svc-note,.svc-lat{color:var(--muted)!important}.text-slate-700,.text-slate-800,.attn-text,.q-title a,.q-title .q-tt{color:var(--tx)!important}
-.svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}
+.svc-list,.q-list,.q-ctr,.q-item,.acct-chip,.reset-chip{background:var(--card);border-color:var(--line);color:var(--tx)}.q-tab,.q-empty{color:var(--muted)}.svc-item{border-color:var(--line)}.svc-more>summary{min-height:44px}.svc-note{font-size:12px}.svc-st{font-size:12px}.qc-exh{color:var(--bad)}.lat-spark{display:inline-block;vertical-align:-3px;color:var(--muted);opacity:.85}.attn-mute{min-height:44px;padding:0 8px}
 .layout{display:flex;flex-direction:column;gap:8px}.col-main,.col-side{width:100%;min-width:0}#footer{font-size:12px;margin-top:24px;color:var(--muted)!important}
 @media(min-width:1000px){#app{padding:28px 32px}.layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}.quota-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.overview{padding:24px 28px}.status-ring{flex-basis:132px;height:132px}.ring-center b{font-size:28px}.hero-title{font-size:26px}.attn-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:699px){#btn-refresh{display:none}.topbar{gap:8px}.brand-mark{width:38px;height:38px}.brand h1{font-size:24px}.overview{padding:16px}.hero-top{gap:12px}.status-ring{flex-basis:96px;height:96px}.ring-center b{font-size:20px}.hero-title{font-size:20px}.hero-copy p{font-size:13px}.overview-chips{gap:6px}.overview-chip{padding:0 10px}.scroll-hint{display:none!important}.overflow-x-auto{overflow:visible!important}.agents-table,.svc-rows-wrap table{display:block!important;min-width:0!important;width:100%!important}.agents-table thead,.svc-rows-wrap thead{display:none}.agent-rows,.svc-rows{display:grid;gap:12px}.agent-rows tr,.svc-rows tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card);min-width:0}.agent-rows td,.svc-rows td{display:block;max-width:100%;overflow:visible;white-space:normal!important;padding:4px!important;overflow-wrap:anywhere}.agent-rows td:first-child{flex:1 1 45%;font-size:16px}.agent-rows td:nth-child(2){flex:1 1 40%}.agent-rows td:last-child{margin-left:auto}.agent-rows .whitespace-nowrap,.svc-rows .whitespace-nowrap{white-space:normal!important}.agent-rows .quota-stack{max-width:100%}.agents-table{border:0}.agents-table .acct-chip{flex-wrap:wrap;white-space:normal}.svc-body>.overflow-x-auto{background:transparent!important;border:0}.svc-row{flex-wrap:wrap}.svc-nm{min-width:120px}.q-tabs{flex-wrap:wrap;overflow:visible}.q-tab{min-height:44px}.q-item{border-radius:16px;padding:14px}.svc-head{flex-wrap:wrap}.svc-head h2{flex:1}.svc-head .agents-count{max-width:70%;text-align:right}.limit-copy{overflow-wrap:anywhere}}
@@ -1053,6 +1053,7 @@ function renderOverviewChips(d){
 document.addEventListener("click",e=>{const a=e.target.closest("[data-overview-link]");if(!a)return;const el=document.querySelector(a.getAttribute("href"));if(el&&el.dataset.collapsed==="1")setCollapsed(el,false,true);});
 const STATE = {
   operational: ["bg-emerald-500", "V provozu", "text-emerald-600", "bg-emerald-50 border-emerald-200"],
+  pending:     ["bg-amber-400", "Ověřuji…", "text-amber-700", "bg-amber-50 border-amber-200"],
   outage:      ["bg-rose-500", "Výpadek", "text-rose-600", "bg-rose-50 border-rose-200"],
   nodata:      ["bg-slate-300", "Bez dat / neběží", "text-slate-400", "bg-white border-slate-200"],
   stale:       ["bg-amber-400", "Zastaralá data", "text-amber-600", "bg-amber-50 border-amber-200"],
@@ -1148,15 +1149,23 @@ function renderResets(list){
   setHTML(box,`<h3>Nejbližší obnovy</h3><ol>${items.map(e=>`<li><span>${esc(czLabel(e.source))} <small>${esc(czLabel(e.label))}</small></span><b data-reset-at="${Number(e.reset_at)}">${esc(untilTxt(e.reset_at))}</b></li>`).join("")}</ol>`);
 }
 
-const SVC_ICON={operational:"✓",outage:"✕",stale:"⚠",nodata:"–"};
+const SVC_ICON={operational:"✓",pending:"…",outage:"✕",stale:"⚠",nodata:"–"};
+function timelineColor(pct){
+  // Continuous colour: 100 % emerald → 0 % rose (statuspage-style, not binary).
+  if(pct==null) return "bg-slate-200";
+  const p=Math.max(0,Math.min(100,Number(pct)));
+  if(p>=99.5) return "bg-emerald-500";
+  if(p>=97) return "bg-emerald-400";
+  if(p>=90) return "bg-lime-400";
+  if(p>=75) return "bg-amber-400";
+  if(p>=50) return "bg-orange-400";
+  if(p>=25) return "bg-rose-400";
+  return "bg-rose-500";
+}
 function timelineHtml(buckets, windowDays){
-  const GREEN=99;
   const bars=(buckets||[]).map(b=>{
-    let cls,status;
-    if(b.uptime_pct==null){cls="bg-slate-200";status="bez dat";}
-    else if(b.uptime_pct>=GREEN){cls="bg-emerald-500";status=`${b.uptime_pct} % dostupnost`;}
-    else{cls="bg-rose-500";status=`výpadek (${b.uptime_pct} % dostupnost)`;}
-    return `<div class="bar flex-1 rounded-sm h-full ${cls}" title="${esc(new Date(b.start*1000).toLocaleDateString(LOCALE)+" · "+status)}"></div>`;
+    const status=b.uptime_pct==null?"bez dat":`${b.uptime_pct} % dostupnost`;
+    return `<div class="bar flex-1 rounded-sm h-full ${timelineColor(b.uptime_pct)}" title="${esc(new Date(b.start*1000).toLocaleDateString(LOCALE)+" · "+status)}"></div>`;
   }).join("");
   const start=(buckets&&buckets.length)?new Date(buckets[0].start*1000).toLocaleDateString(LOCALE):"";
   return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
@@ -1164,8 +1173,36 @@ function timelineHtml(buckets, windowDays){
     `<div class="svc-timeline flex items-end gap-[2px] h-8" role="img" aria-label="Historie dostupnosti za posledních ${esc(windowDays)} dní">${bars}</div>`+
     `<div class="flex items-center justify-between mt-2 text-xs text-slate-400 flex-wrap gap-2"><span>${esc(start)}</span>`+
     `<div class="flex items-center gap-3 flex-wrap"><span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-emerald-500" aria-hidden="true"></span>V provozu</span>`+
+    `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-amber-400" aria-hidden="true"></span>Částečně</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-rose-500" aria-hidden="true"></span>Výpadek</span>`+
     `<span class="flex items-center gap-1"><span class="h-2 w-2 rounded-sm bg-slate-200" aria-hidden="true"></span>Bez dat</span></div><span>teď</span></div></div>`;
+}
+function incidentsHtml(list){
+  const items=(list||[]).slice(0,8);
+  if(!items.length) return "";
+  return `<div class="rounded-lg border border-slate-200 bg-white p-3 mb-2">`+
+    `<h3 class="text-xs font-semibold text-slate-500 mb-2">Incidenty</h3><ul class="text-xs text-slate-600 space-y-1">`+
+    items.map(i=>{
+      const from=new Date((i.start||0)*1000).toLocaleString(LOCALE);
+      const to=i.end==null?"probíhá":new Date(i.end*1000).toLocaleString(LOCALE);
+      const dur=fmtDuration(i.duration);
+      return `<li><span class="font-medium">${esc(from)} → ${esc(to)}</span> · ${esc(dur)}`+
+        (i.detail?`<span class="text-slate-400"> · ${esc(String(i.detail).slice(0,80))}</span>`:"")+`</li>`;
+    }).join("")+`</ul></div>`;
+}
+function sparklineSvg(vals){
+  const pts=(vals||[]).map(v=>v==null?null:Number(v)).filter(v=>v==null||isFinite(v));
+  if(!pts.some(v=>v!=null)) return "";
+  const nums=pts.filter(v=>v!=null);
+  const lo=Math.min(...nums), hi=Math.max(...nums), span=Math.max(hi-lo,0.001);
+  const w=72,h=18,n=pts.length;
+  const path=pts.map((v,i)=>{
+    if(v==null) return null;
+    const x=n<=1?0:(i/(n-1))*w, y=h-((v-lo)/span)*(h-2)-1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).filter(Boolean);
+  if(path.length<2) return "";
+  return `<svg class="lat-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${path.join(" ")}"/></svg>`;
 }
 function svcMetric(s){
   if(s.metric==="agents") return {label:"Agenti",value:s.metric_value!=null?s.metric_value+" běží":"–",sub:"živě v tmux"};
@@ -1193,10 +1230,11 @@ function serviceItem(s, root=null){
   const st=STATE[s.state]||STATE.nodata, m=svcMetric(s), dk="svc:"+s.name;
   const note=(s.stale?`Poslední data před ${fmtDuration(s.data_age)} (${fmtTime(s.last_ts)}) – hodnoty nejsou aktuální. `:"")+friendlyDetail(s.detail);
   const gw=s.restart_gateway?gatewayRestartBtn(s.gateway_profile,s.name,"Restartovat Hermes gateway (celá multiplex)"):"";
+  const spark=sparklineSvg(s.latency_sparkline);
   const html=`<div class="svc-row"><span class="svc-ico ${st[2]}" aria-hidden="true">${SVC_ICON[s.state]||"–"}</span>`+
       `<span class="svc-nm">${esc(serviceDisplayName(s.name))}</span>`+
       `<span class="svc-st ${st[2]}">${esc(st[1])}</span>`+
-      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}</span>${gw}</div>`+
+      `<span class="svc-lat" title="${esc(m.label+" · "+m.sub)}">${esc(m.value)}${spark?` ${spark}`:""}</span>${gw}</div>`+
     (note?`<p class="svc-note">${esc(note)}</p>`:"")+(s.detail&&!friendlyDetail(s.detail)?detailsBlock(s.detail,dk+":tech"):"")+
     `<details class="pod svc-more" data-key="${esc(dk)}"${OPEN_DETAILS.has(dk)?" open":""}><summary>Historie a metriky</summary>`+
       `<div class="metric-grid mb-2">${metricTile("Doba běhu",fmtDuration(s.uptime_seconds),"od první kontroly nebo posledního výpadku")}`+
@@ -1204,6 +1242,7 @@ function serviceItem(s, root=null){
       `${metricTile(m.label,m.value,m.sub)}</div>`+
       renderRows(root, s.rows||[], s.row_details===true)+
       timelineHtml(s.timeline, s.timeline_days)+
+      incidentsHtml(s.incidents)+
     `</details>`;
   return {key:s.name, cls:"svc-item", attrs:{id:s.anchor||null}, html};
 }
@@ -1212,8 +1251,9 @@ function renderServices(list){
   root.hidden=!list.length; if(!list.length) return;
   initCollapse(root,"services",1);
   const bad=list.filter(s=>s.state==="outage").length, stale=list.filter(s=>s.state==="stale").length;
+  const pend=list.filter(s=>s.state==="pending").length;
   const ok=list.filter(s=>s.state==="operational").length;
-  const look=bad?STATE.outage:stale?STATE.stale:ok?STATE.operational:STATE.nodata;
+  const look=bad?STATE.outage:pend?STATE.pending:stale?STATE.stale:ok?STATE.operational:STATE.nodata;
   q(root,".svc-head").className="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 cursor-pointer "+look[3];
   q(root,".svc-dot").className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
   const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
@@ -1639,14 +1679,16 @@ function renderAgents(root, agents, summary=null, columns=[]){
     }else{
       sid=`<span class="sid-btn sid-muted" title="bez relace" aria-label="Bez relace">${ICO_NONE}</span>`;
     }
-    const ok=a.alive&&!a.needs_login; const waiting=ok&&!!a.waiting;
-    const dot=a.needs_login?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
-    const statusTxt=waiting?"Čeká na vstup":(a.status||(ok?"Běží":"Nečinný"));
+    const pending=a.state==="pending";
+    const ok=a.alive&&!a.needs_login&&!pending; const waiting=ok&&!!a.waiting;
+    const dot=a.needs_login||pending?"bg-amber-500":(ok?"bg-emerald-500":(a.plugin?"bg-rose-500":"bg-slate-300"));
+    const statusTxt=pending?"Ověřuji…":waiting?"Čeká na vstup":(a.status||(ok?"Běží":"Nečinný"));
     const longDetail=String(a.status_detail||"").length>90;
-    const statusTip=waiting?["Čeká na vstup – agent v tmux čeká na potvrzení nebo odpověď",a.waiting_hint?`„${a.waiting_hint}“`:""].filter(Boolean).join(" · ")
+    const statusTip=pending?"Ověřuji výpadek – čekám na další kontroly"
+      :waiting?["Čeká na vstup – agent v tmux čeká na potvrzení nebo odpověď",a.waiting_hint?`„${a.waiting_hint}“`:""].filter(Boolean).join(" · ")
       :[longDetail?a.status:(a.status_detail||a.status),
       ok&&a.latency_ms!=null?`latence ${fmtLat(a.latency_ms)}`:""].filter(Boolean).join(" · ");
-    const stCls=waiting?"st-wait":a.needs_login?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
+    const stCls=waiting?"st-wait":(a.needs_login||pending)?"text-amber-600":(ok?"text-slate-600":"text-slate-400");
     const stIco=waiting?`<span class="wait-ico" aria-hidden="true">${svgIcon("M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0")}</span>`:`<span class="h-2 w-2 rounded-full ${dot} shrink-0" aria-hidden="true"></span>`;
     const w=a.work&&a.work.issue?a.work:null;
     let workHtml="";
@@ -1885,8 +1927,11 @@ function renderAttention(list,ov){
       act=gatewayRestartBtn(x.profile,x.lane||"",x.label||"Restartovat Hermes gateway");
     }
     const cd=Number(a.reset_at)>0?` <span class="tabular-nums text-slate-500" data-reset-at="${Number(a.reset_at)}">${esc(untilTxt(Number(a.reset_at)))}</span>`:"";
+    const mute=ROLE==="admin"&&a.mute_key
+      ?`<button type="button" class="attn-mute agent-act text-xs text-slate-400 hover:text-slate-700" data-act="mute_attention" data-mute-key="${esc(a.mute_key)}" data-mute-hours="4" data-name="${esc(title)}" title="Ztlumit na 4 hodiny" aria-label="Ztlumit na 4 hodiny">Ztlumit 4 h</button>`
+      :"";
     return `<li class="attn-item ${esc(a.severity)}"${!attentionExpanded&&items.indexOf(a)>=6?" hidden":""}><span class="attn-ico" aria-hidden="true">${ic[0]}</span>`+
-      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${link}</li>`;
+      `<span class="attn-text"><span class="sr-only">${ic[1]}: </span><b>${esc(title)}</b>${detail?`<p>${esc(detail)}</p>`:""}${cd}</span>${act}${mute}${link}</li>`;
   }).join(""));
   const more=q(box,".attn-more"); more.hidden=items.length<=6; more.textContent=attentionExpanded?"Zobrazit méně":`Zobrazit další (${items.length-6})`;
   more.onclick=()=>{attentionExpanded=!attentionExpanded;renderAttention(list,ov);};
@@ -2022,9 +2067,14 @@ document.addEventListener("click", async e=>{
   if(btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
   if(act==="stop" && !btn.dataset.confirm && !confirm(`Zastavit agenta „${name}“? Nebude automaticky restartován, dokud nestisknete ↻.`)) return;
   btn.disabled=true; btn.classList.add("opacity-40");
-  showToast((act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"||act==="restart_gateway"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…");
+  const toastMsg=act==="mute_attention"?"Ztlumuji upozornění…"
+    :(act==="redeem_reset"?"⟲ Uplatňuji reset pro ":btn.dataset.table?"Spouštím akci pro ":act==="restart"||act==="restart_gateway"?"↻ Restartuji ":"✕ Zastavuji ")+name+"…";
+  showToast(toastMsg);
   try{
-    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row,profile:btn.dataset.profile||undefined});
+    const body=JSON.stringify({name,action:act,table:btn.dataset.table,row:btn.dataset.row,
+      profile:btn.dataset.profile||undefined,
+      mute_key:btn.dataset.muteKey||undefined,
+      hours:btn.dataset.muteHours?Number(btn.dataset.muteHours):undefined});
     const send=async tok=>{
       const h={"Content-Type":"application/json","X-Agentsmon":"action"};
       if(tok) h["X-Agentsmon-Confirm"]=tok;
@@ -2080,16 +2130,23 @@ PAGE=PAGE.replace('AGENT_TABLES_MAIN',
 STALE_FACTOR = 3   # last sample older than 3 × its check interval → "Zastaralá data", never green
 
 
-def _staleness(cur, interval: int, now: float | None = None) -> tuple[str | None, bool, int | None]:
+def _staleness(cur, interval: int, now: float | None = None, service: str | None = None,
+               min_outage: int = 3) -> tuple[str | None, bool, int | None]:
     """(state, stale, age_seconds) for the latest sample. A sample older than STALE_FACTOR × the
     check interval is reported as ``stale`` — a probe that stopped writing must not keep the last
-    green value forever (Telegram most showed "V provozu" from data 6 days old)."""
+    green value forever (Telegram most showed "V provozu" from data 6 days old).
+
+    When ``service`` is set, down samples use ``db.probe_state`` so the first N−1 fails after a
+    success show as yellow ``pending`` instead of an immediate outage.
+    """
     if not cur:
         return "nodata", False, None
     now = time.time() if now is None else now
     age = max(0, int(now - (cur["ts"] or 0)))
     if age > STALE_FACTOR * max(1, int(interval or 60)):
         return "stale", True, age
+    if service:
+        return db.probe_state(service, min_outage), False, age
     return ("operational" if cur["up"] else "outage"), False, age
 
 
@@ -2107,16 +2164,22 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
         sla_pct, samples = db.sla(name, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
         metric = s.get("metric", "latency")   # "latency" | "agents" (show running-agent count)
-        state, stale, data_age = _staleness(cur, s.get("interval_seconds") or interval)
+        state, stale, data_age = _staleness(
+            cur, s.get("interval_seconds") or interval, service=name, min_outage=min_outage)
         detail = cur["detail"] if cur else "no data yet"
+        if state == "pending" and cur:
+            fails = db.consecutive_downs(name, limit=min_outage + 1)
+            detail = f"čekám na potvrzení výpadku ({fails}/{min_outage})" + (
+                f" · {detail}" if detail and detail != "no data yet" else "")
         card = {
             "name": name,
-            "up": bool(cur and cur["up"]),
+            "up": state in ("operational", "pending"),
             "state": state, "stale": stale, "data_age": data_age,
             "detail": detail,
             "last_ts": cur["ts"] if cur else None,
             "latency_ms": round(lat * 1000) if lat is not None else None,
             "avg_latency_ms": (lambda a: round(a * 1000) if a is not None else None)(db.avg_latency(name, win_days * 86400)),
+            "latency_sparkline": db.latency_sparkline(name, 86400, 24),
             "health_url": s.get("health_url"),
             "metric": metric, "metric_value": running_agents if metric == "agents" else None,
             "metric_sub": s.get("latency_label", "module" if s.get("command") else "health check"),
@@ -2126,6 +2189,8 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "uptime_seconds": db.uptime_seconds(name, min_outage),
             "sla": sla_pct, "sla_window_days": win_days, "sla_samples": samples,
             "timeline": db.timeline(name, tdays * 86400, tdays), "timeline_days": tdays,
+            "incidents": db.incidents(name, tdays * 86400, min_outage),
+            "maintenance": db.list_maintenance(name),
         }
         from . import gateway_restart
         if gateway_restart.is_lane_service(card):
@@ -2144,14 +2209,15 @@ def _service_rows(service: str, win_days: int, min_outage: int, interval: int = 
         cur = db.last(rname)
         sla_pct, samples = db.sla(rname, win_days * 86400)
         lat = cur["latency"] if (cur and cur["latency"] is not None) else None
-        state, stale, data_age = _staleness(cur, interval)
+        state, stale, data_age = _staleness(cur, interval, service=rname, min_outage=min_outage)
         out.append({"name": r["name"], "url": r.get("url") or "",
-                    "up": bool(cur and cur["up"]),
+                    "up": state in ("operational", "pending"),
                     "state": state, "stale": stale, "data_age": data_age,
                     "detail": cur["detail"] if cur else "no data yet", "last_ts": cur["ts"] if cur else None,
                     "latency_ms": round(lat * 1000) if lat is not None else None,
                     "sla": sla_pct, "sla_samples": samples,
-                    "uptime_seconds": db.uptime_seconds(rname, min_outage)})
+                    "uptime_seconds": db.uptime_seconds(rname, min_outage),
+                    "latency_sparkline": db.latency_sparkline(rname, 86400, 24)})
     return out
 
 
@@ -2198,9 +2264,12 @@ def _agents_state(cfg: dict) -> list[dict]:
             old = explicit_id(ov['restart'], detect.UUID_RE)
             if old == a['session_id']:
                 a['resume_cmd'] = ov['restart']
-        # Same outage debounce as services / pinned daemons (one blip ≠ critical).
+        # Same outage debounce as services / pinned daemons (one blip ≠ critical);
+        # pending = yellow retries, outage only after min_outage consecutive fails.
         if a.get("status") not in _STOPPED:
-            a["alive"] = detect._debounce_alive(a["name"], bool(a.get("alive")), min_outage)
+            st = detect._debounce_state(a["name"], bool(a.get("alive")), min_outage)
+            a["state"] = st
+            a["alive"] = st != "outage"
     agents = detect.pinned_agents(cfg.get("pinned_daemons", []), min_outage=min_outage) + tmux
     # Telegram deep-link icon. Two sources, explicit wins:
     #  1) an explicit `telegram` field on an agent/daemon config entry (for daemons with their OWN
@@ -2738,21 +2807,43 @@ def _gh(url) -> str | None:
     return url if isinstance(url, str) and url.startswith("https://github.com/") else None
 
 
+def attention_mute_key(item: dict) -> str:
+    """Stable short key for mute / unmute of a 'K řešení' row."""
+    raw = "|".join(str(item.get(k) or "") for k in ("severity", "text_cs", "href", "kind"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
 def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]:
     """Everything that needs a human, worst first: ``([{severity, text_cs, href, action}],
     {level, text_cs, count, total})``. ``count`` = critical + warning items (tab title badge);
-    the list is capped at ATTENTION_MAX, ``total`` is the uncapped length. Never raises."""
+    the list is capped at ATTENTION_MAX, ``total`` is the uncapped length. Never raises.
+
+    Admin-muted items (``db.attention_mutes``) are dropped for the mute duration.
+    """
     now = time.time() if now is None else now
     out: list[dict] = []
+    mutes = {}
+    try:
+        mutes = db.active_mutes(now=int(now))
+    except Exception:
+        mutes = {}
 
     def add(sev, text, href=None, action=None, **extra):
-        out.append({"severity": sev, "text_cs": text, "href": href, "action": action, **extra})
+        item = {"severity": sev, "text_cs": text, "href": href, "action": action, **extra}
+        item["mute_key"] = attention_mute_key(item)
+        if item["mute_key"] in mutes:
+            return
+        out.append(item)
 
     try:
         from . import gateway_restart
         for s in data.get("services") or []:
             name = SERVICE_LABELS_CS.get(s.get("name"), s.get("name") or "služba")
             href = "#" + (s.get("anchor") or "services")
+            # Active maintenance: do not raise attention for outage of that service.
+            if any(int(m.get("start_ts") or 0) <= now < int(m.get("end_ts") or 0)
+                   for m in (s.get("maintenance") or [])):
+                continue
             lane_action = None
             if s.get("restart_gateway") or gateway_restart.is_lane_service(s):
                 lane_action = {
@@ -2763,6 +2854,8 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                 }
             if s.get("state") == "outage":
                 add("critical", f"{name}: výpadek", href, lane_action)
+            elif s.get("state") == "pending":
+                add("warning", f"{name}: ověřuji výpadek…", href)
             elif s.get("state") == "stale":
                 age = f" (poslední data před {_cz_duration(s.get('data_age'))})" if s.get("data_age") is not None else ""
                 add("warning", f"{name}: Zastaralá data{age}", href)
@@ -2777,6 +2870,8 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
             name = a.get("name") or a.get("id") or "agent"
             if a.get("status") in _STOPPED:
                 add("info", f"Agent {name}: zastaven ručně", href)
+            elif a.get("state") == "pending":
+                add("warning", f"Agent {name}: ověřuji výpadek…", href)
             elif not a.get("alive"):
                 add("critical", f"Agent {name}: neběží", href)
             elif a.get("needs_login"):
@@ -3614,6 +3709,27 @@ def make_server(host: str, port: int, cfg: dict):
                 ok, msg = plugins.manager(config.load()).action(table,row,act)
                 body = json.dumps({'ok':ok,'message':msg}).encode()
                 status = 200 if ok else 409
+            elif act == "mute_attention":
+                user = self._ident["user"] or ""
+                mute_key = params.get("mute_key")
+                try:
+                    hours = float(params.get("hours") or 4)
+                except (TypeError, ValueError):
+                    hours = 4.0
+                if not isinstance(mute_key, str) or not 8 <= len(mute_key) <= 64:
+                    return self._post_fail(400, "params", "Neplatný klíč ztlumení.", logged)
+                try:
+                    row = db.mute_attention(mute_key, hours, user=user,
+                                            text_cs=str(params.get("name") or "")[:240])
+                    ok, msg = True, f"Ztlumeno na {row['hours']:g} h"
+                except Exception as exc:
+                    ok, msg = False, str(exc)
+                gw.log_action({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                               "user": user, "action": act, "mute_key": mute_key,
+                               "hours": hours, "result": "ok" if ok else "error",
+                               "message": _clip(msg, 240)})
+                body = json.dumps({"ok": ok, "message": msg}, ensure_ascii=False).encode()
+                status = 200 if ok else 500
             elif act == "restart_gateway":
                 user = self._ident["user"] or ""
                 wait = gw.cooldown_remaining()
@@ -3644,7 +3760,7 @@ def make_server(host: str, port: int, cfg: dict):
                 status = 200 if ok else 500
             elif not isinstance(name,str) or not name or act not in ("restart", "stop"):
                 self._audit(400, "rejected", "params", logged)
-                body = json.dumps({"ok": False, "error": "need name + action (restart|stop|restart_gateway)"}).encode()
+                body = json.dumps({"ok": False, "error": "need name + action (restart|stop|restart_gateway|mute_attention)"}).encode()
                 status = 400
                 ok = None
             else:

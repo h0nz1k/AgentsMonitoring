@@ -126,28 +126,38 @@ class RetestRegressions(unittest.TestCase):
 
     def test_loading_is_neutral_and_expired_rows_and_actions_are_removed(self):
         manager = plugins.Manager({'modules_dir': '/nonexistent-fixture'})
-        manager.plugins = [SimpleNamespace(id='fixture', version='1')]
+        manager.plugins = [SimpleNamespace(id='fixture', version='1', timeout=3, settings={})]
         stale = {'tables': [{'up': True, 'rows': [{'row_actions': [{'id': 'reload'}]}]}],
                  'patches': [{'row_id': 'old'}], 'columns': [{'id': 'old'}], 'errors': []}
         expired = ('old', time.monotonic() - plugins.MAX_STALE_SECONDS - 1, stale)
-        for name, cache in (('initial', None), ('expired', expired)):
-            with self.subTest(case=name), \
-                    patch.object(plugins, 'manager', return_value=manager), \
-                    patch.object(plugins.threading.Thread, 'start'), \
-                    patch.object(manager, '_snapshots', {'fixture': cache} if cache else {}):
-                data = plugins.collect({}, [])
-                self.assertEqual(data['tables'], [])
-                self.assertEqual(data['patches'], [])
-                self.assertEqual(data['columns'], [])
-                self.assertEqual(data['errors'], [], 'Loading is not a failed check')
-                self.assertTrue(data['loading'])
-        # Within MAX_STALE_SECONDS (2026-11-09 operator request: no blank page that looks healthy):
-        # the last snapshot is shown, flagged stale, and never actionable.
+        # Issue #90 bod 0: „Načítám…“ / loading only when no successful snapshot exists yet.
+        # Expired or refreshing-over-cache must hide/flag stale data, not flip overall loading.
+        with self.subTest(case='initial'), \
+                patch.object(plugins, 'manager', return_value=manager), \
+                patch.object(plugins.threading.Thread, 'start'), \
+                patch.object(manager, '_snapshots', {}):
+            data = plugins.collect({}, [])
+            self.assertEqual(data['tables'], [])
+            self.assertEqual(data['patches'], [])
+            self.assertEqual(data['columns'], [])
+            self.assertEqual(data['errors'], [], 'Loading is not a failed check')
+            self.assertTrue(data['loading'])
+        with self.subTest(case='expired'), \
+                patch.object(plugins, 'manager', return_value=manager), \
+                patch.object(plugins.threading.Thread, 'start'), \
+                patch.object(manager, '_snapshots', {'fixture': expired}):
+            data = plugins.collect({}, [])
+            self.assertEqual(data['tables'], [])
+            self.assertEqual(data['errors'], [])
+            self.assertFalse(data['loading'],
+                             'Prior success existed; expired cache is not first-load loading')
+        # Within MAX_STALE_SECONDS: last snapshot shown, flagged stale, never actionable.
         with patch.object(plugins, 'manager', return_value=manager), \
                 patch.object(plugins.threading.Thread, 'start'), \
                 patch.object(manager, '_snapshots', {'fixture': ('old', time.monotonic() - 31, stale)}):
             data = plugins.collect({}, [])
-            self.assertTrue(data['loading'])
+            self.assertFalse(data['loading'],
+                             'Refresh over a valid snapshot must not set loading (#90 bod 0)')
             self.assertEqual(data['errors'], [])
             self.assertTrue(all(t.get('stale') for t in data['tables']))
             self.assertFalse(any('row_actions' in r for t in data['tables'] for r in t['rows']))
