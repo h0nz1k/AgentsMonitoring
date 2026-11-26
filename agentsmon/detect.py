@@ -163,6 +163,8 @@ def pinned_agents(pinned: list[dict], min_outage: int = 3) -> list[dict]:
         out.append({
             "name": d.get("name"), "kind": "daemon",
             "label": d.get("tag") or model or d.get("name"),
+            # What model-change alerts track: the name fallback is not a model (→ unknown, silent).
+            "model": d.get("tag") or model or "unknown",
             "vendor": d.get("vendor") or vendor_for_agent(None, model),
             "name_color": d.get("name_color"),
             "session_id": None, "alive": alive, "state": state, "age": age, "latency_ms": lat,
@@ -732,7 +734,7 @@ def _hermes_model(profile: str | None = None) -> str | None:
     return None
 
 
-def _hermes_live_model(profile: str | None = None) -> str | None:
+def _hermes_live_model(profile: str | None = None, status: dict | None = None) -> str | None:
     """Model the Hermes gateway is ACTUALLY using in its current Telegram conversation.
 
     ``model.default`` in config.yaml is only the boot default; a ``/model`` switch is stored as
@@ -744,8 +746,12 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
     ``agent:<profile>:telegram:…`` (``main`` = default profile). With ``profile`` set, only that
     profile's routes count — otherwise a row would show whichever profile spoke last. Usage and
     session rows are looked up in the default store and in the profile's own store.
-    Read-only; any failure returns None so the caller falls back to the config default.
+    Read-only; any failure returns None. If ``status`` is given, ``status["unavailable"]`` is set
+    when the store exists but could not be read (locked, corrupt …): the live model is then
+    UNKNOWN, not absent, and must not be replaced by the config default (fake model switch).
     """
+    status = {} if status is None else status
+    status["unavailable"] = False
     root = Path.home() / ".hermes"
     db = root / "state.db"
     if not db.exists():
@@ -757,9 +763,21 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
     try:
         with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
             conn.execute("PRAGMA query_only=ON")
-            for raw, in conn.execute(
-                    "SELECT entry_json FROM gateway_routing WHERE scope=? AND length(entry_json)<65536 "
-                    "ORDER BY updated_at DESC LIMIT 256", (str(root / "sessions"),)):
+            # The gateway rewrites every route with the same ``updated_at``, so a global
+            # ``LIMIT`` over all routes (hundreds of ``agent:*:local:…``) can push the profile's
+            # Telegram route out. Filter by ``session_key`` in SQL; tie-break on rowid.
+            if "session_key" in {r[1] for r in conn.execute("PRAGMA table_info(gateway_routing)")}:
+                pattern = ((prefix + "telegram:").replace("\\", "\\\\").replace("%", "\\%")
+                           .replace("_", "\\_") + "%") if prefix else "%:telegram:%"
+                rows = conn.execute(
+                    "SELECT entry_json, session_key FROM gateway_routing WHERE scope=? "
+                    "AND session_key LIKE ? ESCAPE '\\' AND length(entry_json)<65536 "
+                    "ORDER BY updated_at DESC, rowid DESC LIMIT 32", (str(root / "sessions"), pattern))
+            else:  # older schema without the column: scan (lazily) and filter in Python
+                rows = conn.execute(
+                    "SELECT entry_json, NULL FROM gateway_routing WHERE scope=? AND length(entry_json)<65536 "
+                    "ORDER BY updated_at DESC, rowid DESC", (str(root / "sessions"),))
+            for raw, key in rows:
                 try:
                     entry = json.loads(raw)
                 except ValueError:
@@ -767,13 +785,14 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
                 if (not isinstance(entry, dict) or entry.get("platform") != "telegram"
                         or entry.get("expiry_finalized") or not isinstance(entry.get("session_id"), str)):
                     continue
-                if prefix and not str(entry.get("session_key") or "").startswith(prefix):
+                if prefix and not str(key or entry.get("session_key") or "").startswith(prefix):
                     continue
                 sid = entry["session_id"]
                 mo = entry.get("model_override")
                 override = mo.get("model") if isinstance(mo, dict) else (mo if isinstance(mo, str) else None)
                 break
     except (sqlite3.Error, OSError):
+        status["unavailable"] = True
         return None
     if override:
         return prettify_model(override)
@@ -783,6 +802,7 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
     own = _hermes_profile_home(profile) / "state.db"
     if own != db and own.exists():
         stores.insert(0, own)
+    failed = False
     for store in stores:
         try:
             with closing(sqlite3.connect(store.as_uri() + "?mode=ro", uri=True, timeout=.2)) as conn:
@@ -802,7 +822,9 @@ def _hermes_live_model(profile: str | None = None) -> str | None:
                     if row and isinstance(row[0], str) and row[0].strip():
                         return prettify_model(row[0])
         except (sqlite3.Error, OSError):
+            failed = True
             continue
+    status["unavailable"] = failed
     return None
 
 
@@ -815,7 +837,12 @@ def daemon_model(name: str, profile: str | None = None) -> str | None:
     if "hermes" in n or profile:
         # Hermes owns its model selection. Unknown configuration must stay unknown;
         # another CLI's rollout can belong to an entirely different account/session.
-        return _hermes_live_model(profile) or _hermes_model(profile)
+        # An unreadable state store means "live model unknown", not "use the config default".
+        status: dict = {}
+        live = _hermes_live_model(profile, status)
+        if live or status.get("unavailable"):
+            return live
+        return _hermes_model(profile)
     return None
 
 
