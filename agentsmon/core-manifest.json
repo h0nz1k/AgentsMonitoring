@@ -1,14 +1,14 @@
 {
-  "content_id": "51419ac296543b489cf7ceb9f80990a7742f7ee5f78de42ea8e58e4535ebeeca",
+  "content_id": "68485acf123e40d817f8ac532842d76e4bf9ad5bcff085c7d7441014110895ae",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
     "alerts.py": "efe51f8e307bf8d7f0b3f60cbe070790330645047a2ea89c469145bd06ab7c2f",
     "bridges.py": "9525ab9ad7c86f9d0e06ee44c1ee9558ab88331c088a21361fbcc1e86f815540",
     "config.py": "b8f4171eff9856fb4b541824a37c63cb598b832e08727df227cae79116ddca2e",
-    "dashboard.py": "efbf9fbeae18b0b35c45212161eb818b3d451e8c88b489736b60a60a2f279c8f",
+    "dashboard.py": "9f4e9f57ad9c8c2a0e17a7280714560e2fac7514c5f30106e079e58bc2a196cf",
     "db.py": "6c7290ac1cccd0bba62dec8e3e5eb6f37585464708c09f4f7c39c21a3fff9e27",
-    "detect.py": "7c1ebebbe5bff6058769ee4748f3d564be22de6a1eca348ead8817d9ce842015",
+    "detect.py": "a770d404624c88098399d45cd36cfe71dd800f89ba91eec27f718cf31424a7c6",
     "dialogs.py": "690cf9a5fb439809329a8054d74de32cca192b67d6e931926762f345812b2b66",
     "doctor.py": "b91ff6caabe4fe9a967e46ff0eed1ad0162b99c94d402bd5dcefa82745bb2818",
     "gateway_restart.py": "bbe80c475b2286b9aca7f013b407539fee7059d4bb0ae26a26ec4a9cc1497752",
@@ -39,6 +39,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "v0.3.14-dashboard-improvements-90",
+  "release": "v0.3.14-ux-simplify-102",
   "version": "0.3.14"
 }

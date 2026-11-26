@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Dashboard UX (#102): header is one status sentence + counts (no quota chips / „Nejbližší obnovy“);
+  „K řešení“ is the sole problem list (deduped by source+window); quotas are one row per provider
+  with edge accounts collapsed under „+ další“; agents/services stay compact when healthy.
+- Overall status (#102): after the first successful build, a slow/timeouting plugin keeps last
+  data (stale) and never flips overall to ``loading``; „Stav se nepodařilo obnovit“ only after
+  N consecutive rebuild failures; disk snapshots keep their overall instead of forcing loading.
+- Detect: Codex rollout model is read from the latest turn (tail), not a stale head/config.toml,
+  so LANA/terminal rows follow the live session (e.g. GPT-6.2 Sol).
 - Plugins: `plugin_loading` / overall „Načítám…“ only on first successful snapshot; periodic
   refresh keeps a valid cache (stale, not loading). Freshness TTL from plugin
   `refresh_seconds` / `interval_seconds` (else derived from collect timeout).

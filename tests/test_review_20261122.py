@@ -89,6 +89,7 @@ class M3FailingRebuild(unittest.TestCase):
         self.assertIn("{type(exc).__name__}: {exc}", src)
 
     def test_cached_state_demotes_overall_when_age_over_30(self):
+        # #102 bod 0: age alone must not demote overall; only N consecutive rebuild failures.
         d = dashboard
         d._state_cache = (time.monotonic() - 45, json.dumps({
             "overall": {"level": "ok", "text_cs": "Vše v provozu", "count": 0, "total": 0},
@@ -97,13 +98,19 @@ class M3FailingRebuild(unittest.TestCase):
         d._state_from_disk = False
         d._state_building = True  # prevent background rebuild
         d._state_disk_checked = True
+        d._state_rebuild_failures = 0
         try:
             data = json.loads(d._cached_state())
             self.assertTrue(data["stale"])
+            self.assertEqual(data["overall"]["level"], "ok")
+            d._state_rebuild_failures = d.STATE_REBUILD_FAIL_LIMIT
+            data = json.loads(d._cached_state())
             self.assertEqual(data["overall"]["level"], "warning")
+            self.assertEqual(data["overall"]["text_cs"], "Stav se nepodařilo obnovit")
         finally:
             d._state_cache = None
             d._state_building = False
+            d._state_rebuild_failures = 0
 
 
 class M5DebounceAndTimeout(unittest.TestCase):

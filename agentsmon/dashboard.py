@@ -982,6 +982,15 @@ a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var
 .state-updating{font-size:12px;color:var(--muted)}
 .quota-skeleton{min-height:180px;color:var(--muted);margin-bottom:16px}
 .skeleton-line{height:28px;border-radius:8px;background:var(--track);margin-top:18px}
+.provider-quota-row{display:flex;flex-direction:column;gap:8px}
+.provider-quota-windows{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-items:start}
+.provider-quota-windows .bar.empty,.provider-quota-windows .empty{color:var(--muted);font-size:12px;padding-top:8px}
+.quota-edge-details{margin-top:8px;font-size:13px;color:var(--muted)}
+.quota-edge-details>summary{cursor:pointer;list-style:none}
+.quota-edge-details>summary::-webkit-details-marker{display:none}
+.quota-edge-details[open]>summary{margin-bottom:8px}
+.quota-edge-wrap{list-style:none}
+@media(max-width:620px){.provider-quota-windows{grid-template-columns:1fr}}
 </style>
 <link rel="stylesheet" href="/static/dashboard.css">
 </head><body class="bg-slate-50 text-slate-800 antialiased" data-role="__AGENTSMON_ROLE__">
@@ -1040,14 +1049,16 @@ function updateAge(){
 }
 setInterval(updateAge,1000);
 function renderOverviewChips(d){
+  // Header chips = counts only (agents, services, queue, data age). Quota problems live solely
+  // in „K řešení“ / the Kvóty section — never duplicated here (UX 24. 11.).
   const agents=[...(d.agents||[]),...(d.agent_tables||[]).filter(t=>t.kind!=="quota").flatMap(t=>t.rows||[])], services=d.services||[];
   const queue=d.queue&&d.queue.summary||{}, n=k=>Number(queue[k]||0);
-  const issues=(d.attention||[]).filter(a=>["exhausted","forecast","cap"].includes(a.kind)).length;
   const alive=agents.filter(a=>a.alive&&!a.needs_login).length, healthy=services.filter(s=>s.state==="operational").length;
+  const ageSec=Number(d.state_age_seconds), ageTxt=ageSec>=60?`${Math.round(ageSec/60)} min`:(ageSec>=0?`${Math.max(1,Math.round(ageSec))} s`:"–");
   const chips=[["#agenti",`Agenti ${alive}/${agents.length}`,alive===agents.length?"ok":"bad"],
     ["#services",`Služby ${healthy}/${services.length}`,healthy===services.length?"ok":"bad"],
-    ["#plugin-tables",`Kvóty · ${issues} ${plural(issues,"problém","problémy","problémů")}`,issues?"warn":"ok"],
-    ["#fronta",`Fronta · ${n("failed")} selhala · ${n("blocked")} blokována · ${n("queued")+n("awaiting_pickup")} čeká`,n("failed")?"bad":n("blocked")?"warn":"ok"]];
+    ["#fronta",`Fronta · ${n("running")} běží · ${n("queued")+n("awaiting_pickup")} čeká`+(n("blocked")||n("failed")?` · ${n("blocked")+n("failed")} blok/selh`:""),n("failed")?"bad":n("blocked")?"warn":"ok"],
+    ["#attention",`Data ${ageTxt}`,d.stale||ageSec>30?"warn":"ok"]];
   setHTML(document.getElementById("overview-chips"),chips.map(([href,text,tone])=>`<a href="${href}" class="overview-chip" data-overview-link><i class="status-dot ${tone}" aria-hidden="true"></i><span>${esc(text)}</span></a>`).join(""));
 }
 document.addEventListener("click",e=>{const a=e.target.closest("[data-overview-link]");if(!a)return;const el=document.querySelector(a.getAttribute("href"));if(el&&el.dataset.collapsed==="1")setCollapsed(el,false,true);});
@@ -1246,10 +1257,14 @@ function serviceItem(s, root=null){
     `</details>`;
   return {key:s.name, cls:"svc-item", attrs:{id:s.anchor||null}, html};
 }
+function idealServices(s){
+  return s.state==="operational"&&(s.sla==null||Number(s.sla)>=99);
+}
 function renderServices(list){
   const root=document.getElementById("services"); if(!root) return;
   root.hidden=!list.length; if(!list.length) return;
-  initCollapse(root,"services",1);
+  const problem=list.some(s=>!idealServices(s));
+  autoCollapseSection(root,"services",1,!problem);
   const bad=list.filter(s=>s.state==="outage").length, stale=list.filter(s=>s.state==="stale").length;
   const pend=list.filter(s=>s.state==="pending").length;
   const ok=list.filter(s=>s.state==="operational").length;
@@ -1259,7 +1274,13 @@ function renderServices(list){
   const cnt=q(root,".agents-count"); cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
   cnt.textContent=`${ok}/${list.length} v provozu`;
   const ul=q(root,".svc-list");
-  patchRows(ul, list.map(s=>serviceItem(s)), "li");
+  const focus=list.filter(s=>!idealServices(s)), ideal=list.filter(s=>idealServices(s));
+  const rows=(focus.length?focus:list).map(s=>serviceItem(s));
+  if(ideal.length&&focus.length){
+    rows.push({key:"ideal-wrap",cls:"svc-ideal-wrap",html:
+      `<details class="quota-edge-details"><summary>+ ${ideal.length} ${plural(ideal.length,"služba","služby","služeb")} nad 99 %</summary><ul class="svc-list" role="list">${ideal.map(s=>`<li class="svc-item" id="${esc(s.anchor||"")}">${serviceItem(s).html}</li>`).join("")}</ul></details>`});
+  }
+  patchRows(ul, rows, "li");
 }
 function renderRows(root, rows, details=false){
   // Per-check table inside a service's disclosure (HTML string; root kept for API compatibility).
@@ -1559,8 +1580,16 @@ function creditMeta(wins){
     (expiry?`<p>Platnost do ${esc(new Date(expiry*1000).toLocaleDateString(LOCALE,{timeZone:"Europe/Prague",day:"numeric",month:"numeric",year:"numeric"}))}</p>`:"")+`</div>`;
 }
 function plural(n,one,few,many){ return n===1?one:(n>=2&&n<=4)?few:many; }
+function isEdgeQuota(r){
+  const n=String(r.name||""), wins=allBars(r);
+  if(/Vertex|Fable|Bonus|kredit|GCP/i.test(n)) return true;
+  const top=wins.filter(x=>!x.b.parent);
+  return top.length>0&&top.every(x=>x.b.meta&&x.b.meta.spent_usd!=null||/bonus|kredit|credit/i.test(String(x.b.label||"")));
+}
 function renderQuotaCard(r,table){
   const f=freshness(r), wins=allBars(r);
+  const primary=wins.filter(x=>!x.b.parent&&!(x.b.meta&&x.b.meta.spent_usd!=null)&&!/bonus|kredit|credit/i.test(String(x.b.label||"")));
+  const edgeWins=wins.filter(x=>!x.b.parent&&!primary.includes(x));
   const exh=wins.filter(x=>!x.b.parent&&!isUnavail(x.b)&&Number(x.b.percent)>=100);
   const risk=wins.some(x=>{const f=x.b.forecast;return !x.b.parent&&f&&f.will_exhaust_before_reset&&f.actionable;});
   const plan=(String(r.status_detail||"").match(/(?:^| · )plán ([^·]+)/i)||[])[1]||r.label;
@@ -1570,18 +1599,27 @@ function renderQuotaCard(r,table){
   const textOnly=Object.values(r.cells||{}).filter(c=>c&&!(c.bars&&c.bars.length)&&c.text);
   const acts=renderActions(r,table,{lock:false});
   tipSeq=0; TIP_NS=hashStr("q:"+(r.anchor||r.id||r.name));
-  return {key:r.anchor||r.id||r.name, cls:"quota-card"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
+  const shortWin=primary.find(x=>/5\s*h|5h/i.test(String(x.b.label||"")))||primary[0];
+  const longWin=primary.filter(x=>x!==shortWin).slice(-1)[0]||primary[1];
+  const winHtml=(shortWin||longWin)
+    ?`<div class="provider-quota-windows">${shortWin?renderWindow(shortWin):`<div class="bar empty">–</div>`}${longWin?renderWindow(longWin):`<div class="bar empty">–</div>`}</div>`
+    :`<div class="qc-wins">${wins.filter(x=>!x.b.parent).map(x=>renderWindow(x)).join("")}</div>`;
+  return {key:r.anchor||r.id||r.name, cls:"quota-card provider-quota-row"+(exh.length?" exhausted":""), attrs:{id:r.anchor||null,tabindex:"-1"}, html:
     `<div class="qc-head"><div class="provider-avatar ${esc(r.vendor||"other")}" aria-hidden="true">${providerMark(r.vendor,r.name)}</div><div class="provider-name"><span class="qc-name">${esc(/Vertex/i.test(r.name)?"Vertex AI · kredit 300 USD":czLabel(r.name))}</span><span class="plan-label">${esc(/Vertex/i.test(r.name)?"Zkušební kredit":czLabel(plan)||"Účet poskytovatele")}</span></div>`+
     `<span class="provider-status ${exh.length?"bad":risk?"warn":f.cls==="ok"?"ok":"info"}" title="${esc(risk?"Při současném tempu dojde před obnovou":f.reason)}">${esc(status)}</span></div>`+
     (exh.length?`<p class="qc-exh">⚠ vyčerpáno: ${esc(exh.map(x=>czLabel(x.b.label||winType(x.b,x.c))).join(", "))}</p>`:"")+
     `<p class="qc-users">${users.length?esc(plural(users.length,"používá: ","používají: ","používají: ")+users.join(", ")):"nepřiřazeno žádnému agentovi"}</p>`+
-    `<p class="quota-legend">zbývá · ↻ obnova</p><div class="qc-wins">${wins.filter(x=>!x.b.parent).map(x=>renderWindow(x)+wins.filter(y=>y.b.parent===x.b.label).map(y=>`<p class="sub-limit">z toho ${esc(czLabel(y.b.label))} ${esc(fmtPct(y.b.percent))}${y.b.cap!=null?" · strop "+esc(fmtPct(y.b.cap)):""}</p>`).join("")).join("")}${creditMeta(wins)}`+
-      textOnly.filter(c=>!creditMeta(wins)).map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(czLabel(c.text))}</div>`).join("")+`</div>`+
+    `<p class="quota-legend">zbývá · ↻ obnova</p>${winHtml}`+
+    wins.filter(y=>y.b.parent).map(y=>`<p class="sub-limit">z toho ${esc(czLabel(y.b.label))} ${esc(fmtPct(y.b.percent))}${y.b.cap!=null?" · strop "+esc(fmtPct(y.b.cap)):""}</p>`).join("")+
+    creditMeta(wins)+
+    textOnly.filter(c=>!creditMeta(wins)).map(c=>`<div class="text-xs ${tones[c.tone]||""}">${esc(czLabel(c.text))}</div>`).join("")+
+    (edgeWins.length?`<details class="quota-edge-details"><summary>+ další</summary>${edgeWins.map(x=>renderWindow(x)).join("")}</details>`:"")+
     (acts?`<div class="qc-actions">${acts}</div>`:"")+
     (r.status_detail?detailsBlock(r.status_detail,"q:"+(r.anchor||r.id||r.name)):"")};
 }
 function renderQuotaSection(root,t){
   const rows=t.rows||[];
+  const main=rows.filter(r=>!isEdgeQuota(r)), edge=rows.filter(r=>isEdgeQuota(r));
   const exh=rows.filter(r=>allBars(r).some(x=>!isUnavail(x.b)&&Number(x.b.percent)>=100)).length;
   const bad=t.up===false||!!t.error;
   const head=q(root,".svc-head"), dot=q(root,".svc-dot"), cnt=q(root,".agents-count");
@@ -1590,7 +1628,16 @@ function renderQuotaSection(root,t){
   dot.className="svc-dot h-3 w-3 rounded-full shrink-0 "+look[0];
   cnt.className="agents-count ml-auto text-sm font-medium "+look[2];
   cnt.textContent=`${rows.length} ${plural(rows.length,"účet","účty","účtů")}`+(exh?` · ${exh} ${plural(exh,"vyčerpaný","vyčerpané","vyčerpaných")}`:"")+(t.stale?" · aktualizuji…":"");
-  patchRows(q(root,".quota-cards"), rows.length?rows.map(r=>renderQuotaCard(r,root.dataset.svc))
+  const cards=(main.length?main:rows).map(r=>renderQuotaCard(r,root.dataset.svc));
+  if(edge.length&&main.length){
+    const bits=edge.map(r=>{
+      const w=allBars(r).filter(x=>!x.b.parent)[0];
+      const rem=w&&!isUnavail(w.b)?fmtPct(Math.max(0,100-Number(w.b.percent||0))):"–";
+      return `${czLabel(r.name)} ${rem}`;
+    });
+    cards.push({key:"edge",cls:"quota-edge-wrap",html:`<details class="quota-edge-details"><summary>+ další · ${esc(bits.join(" · "))}</summary><ul class="quota-cards edge-list" role="list">${edge.map(r=>`<li class="quota-card provider-quota-row">${renderQuotaCard(r,root.dataset.svc).html}</li>`).join("")}</ul></details>`});
+  }
+  patchRows(q(root,".quota-cards"), rows.length?cards
     :[{key:"empty",cls:"text-sm text-slate-400",html:esc(t.error||"Žádné účty.")}], "li");
   const note=q(root,".qc-note"), txt=[t.error,t.note].filter(Boolean).join(" ");
   note.hidden=!txt; q(note,".agents-note").textContent=txt;
@@ -1769,6 +1816,17 @@ function initCollapse(root,name,index){
   root.dataset.cname=name; let v=null; try{ v=localStorage.getItem(collapseKey(name)); }catch(e){}
   setCollapsed(root, v==null ? index>=OPEN_BY_DEFAULT : v==="1", false);
 }
+function autoCollapseSection(root,name,index,preferCollapsed){
+  // When everything is healthy, start collapsed; auto-expand on a problem unless the user chose.
+  // Avoid touching the DOM when the desired state already matches (keeps incremental refresh quiet).
+  if(root.dataset.cname===name){
+    let v=null; try{ v=localStorage.getItem(collapseKey(name)); }catch(e){}
+    if(v==null&&preferCollapsed===false&&root.dataset.collapsed==="1") setCollapsed(root,false,false);
+    return;
+  }
+  root.dataset.cname=name; let v=null; try{ v=localStorage.getItem(collapseKey(name)); }catch(e){}
+  setCollapsed(root, v==null ? (preferCollapsed||index>=OPEN_BY_DEFAULT) : v==="1", false);
+}
 document.addEventListener("click",e=>{
   const h=e.target.closest(".svc-head"); if(!h||e.target.closest("a,button")) return;
   const root=h.closest("section"); if(!root) return;
@@ -1900,7 +1958,10 @@ const ATTN_ICON={critical:["✕","Kritické"],warning:["⚠","Upozornění"],inf
 let lastAttnCount=null, attentionExpanded=false;
 function renderAttention(list,ov){
   const box=document.getElementById("attention"); if(!box) return;
-  const items=Array.isArray(list)?list:[], total=Number(ov&&ov.total)||items.length;
+  // Client-side dedupe by title text — each problem once even if the payload repeats.
+  const raw=Array.isArray(list)?list:[], seen=new Set();
+  const items=raw.filter(a=>{const k=String(a.text_cs||a.title_cs||""); if(seen.has(k)) return false; seen.add(k); return true;});
+  const total=Number(ov&&ov.total)||items.length;
   const countText=String(Number(ov&&ov.critical||0)+Number(ov&&ov.warning||0));
   box.hidden=!items.length;
   box.className="attn mb-4"+(ov&&ov.level==="critical"?" critical":"");
@@ -2000,13 +2061,15 @@ async function refresh(){
     const updating=document.getElementById("state-updating"), hideUpdating=!(d.stale||d.state_age_seconds>30);
     if(updating.hidden!==hideUpdating) updating.hidden=hideUpdating;
     if(typeof d.time==="number") clockSkew=d.time-Date.now()/1000;
-    if(sectionChanged("resets",d.resets)) renderResets(d.resets);
+    // Quotas/resets stay out of the header; keep the aside empty (markup retained for a11y hooks).
+    if(sectionChanged("resets",[])) renderResets([]);
     try{ if(sectionChanged("attention",[d.attention,d.overall])) renderAttention(d.attention,d.overall); }catch(err){ console.error("attention",err); }
     ACCTS={};
     (d.agent_tables||[]).forEach(t=>{ if(t.kind==="quota") (t.rows||[]).forEach(r=>{ ACCTS[t.id+"|"+r.id]=r; }); });
     const agentsRoot=document.querySelector('section[data-svc="agents"]');
     if(sectionChanged("agents",[d.agents,d.columns,d.agent_tables])) renderAgents(agentsRoot, d.agents, null, d.columns||[]);
-    initCollapse(agentsRoot,"agents",0);
+    const agentsOk=(d.agents||[]).every(a=>a.alive&&!a.needs_login&&!a.waiting&&a.state!=="pending");
+    autoCollapseSection(agentsRoot,"agents",0,agentsOk);
     try{ if(sectionChanged("queue",d.queue)) renderQueue(d.queue); }catch(err){ console.error("queue",err); }
     const allTables=d.agent_tables||[];
     syncTables(document.getElementById("plugin-agent-tables"), allTables.filter(t=>t.kind!=="quota"), allTables, d);
@@ -2394,12 +2457,16 @@ SNAPSHOT_MAX_AGE_SECONDS = 900.0
 BACKGROUND_REFRESH_SECONDS = 30
 #: HA summary ``stale`` when cache age exceeds twice the idle background refresh interval.
 HA_STALE_AFTER_SECONDS = 2 * BACKGROUND_REFRESH_SECONDS
+#: Only after this many consecutive background rebuild failures (with a stale cache) do we
+#: surface „Stav se nepodařilo obnovit“. A slow/timeouting plugin alone must not flip overall.
+STATE_REBUILD_FAIL_LIMIT = 3
 _state_lock = threading.Lock()
 _state_cache: tuple | None = None
 _state_building = False
 _state_generation = 0
 _state_disk_checked = False
 _state_from_disk = False
+_state_rebuild_failures = 0
 
 
 def _loading_state() -> dict:
@@ -2436,9 +2503,13 @@ def _write_snapshot(body):
 
 
 def _retain_pending_tables(data, previous, age):
-    """Keep disk-backed plugin rows until that plugin publishes, with a fixed stale deadline."""
-    pending = {p['id'] for p in data.get('plugins', []) if p.get('loading') or p.get('error')}
-    if not pending:
+    """Keep last-good plugin rows while that plugin is still loading *or* failed (stale).
+
+    A timeout/error is a per-plugin warning with retained data — never a reason to clear the
+    snapshot or force global ``loading`` after the first successful publish.
+    """
+    retain_ids = {p['id'] for p in data.get('plugins', []) if p.get('loading') or p.get('error')}
+    if not retain_ids:
         return data
     existing = {r.get('plugin') for t in data.get('agent_tables', []) for r in t.get('rows', [])}
     retained = []
@@ -2447,7 +2518,7 @@ def _retain_pending_tables(data, previous, age):
         for row in table.get('rows', []):
             stamp = row.get('snapshot_at', table.get('snapshot_at', previous.get('time', time.time()-age)))
             pid = row.get('plugin') or str(table.get('id', '')).split(':')[0]
-            if pid in pending-existing and 0 <= time.time()-stamp < plugins.MAX_STALE_SECONDS:
+            if pid in retain_ids - existing and 0 <= time.time()-stamp < plugins.MAX_STALE_SECONDS:
                 rows.append({**row, 'snapshot_at': stamp})
         if not rows:
             continue
@@ -2459,12 +2530,15 @@ def _retain_pending_tables(data, previous, age):
         data['agent_tables'] = _merge_tables_by_title(data.get('agent_tables', []) + retained)
         ids = {c['id'] for c in data.get('columns', [])}
         data['columns'] = data.get('columns', []) + [c for c in previous.get('columns', []) if c['id'] not in ids]
+        # Retained rows mean we already had a successful publish — never claim first-load loading.
+        if data.get('plugin_loading') and data.get('agent_tables'):
+            data['plugin_loading'] = False
         data['attention'], data['overall'] = compute_attention(data)
     return data
 
 
 def _rebuild_state() -> bytes:
-    global _state_cache, _state_building, _state_from_disk
+    global _state_cache, _state_building, _state_from_disk, _state_rebuild_failures
     with _state_lock:
         generation = _state_generation
     try:
@@ -2477,12 +2551,15 @@ def _rebuild_state() -> bytes:
                     body = json.dumps(data).encode()
                 _state_cache = (time.monotonic(), body)
                 _state_from_disk = False
+                _state_rebuild_failures = 0
                 try:
                     _write_snapshot(body)
                 except OSError:
                     pass  # persistence is best effort; memory cache still works
         return body
     except Exception as exc:
+        with _state_lock:
+            _state_rebuild_failures += 1
         print(f"state warm-up: {type(exc).__name__}: {exc}", flush=True)
         return json.dumps(_loading_state()).encode()
     finally:
@@ -2507,21 +2584,31 @@ def _cached_state(clock=time.monotonic) -> bytes:
                                     age >= (1 if loading else STATE_FRESH_SECONDS)):
             _state_building = True
             threading.Thread(target=_rebuild_state, daemon=True, name="agentsmon-state").start()
-        if cache and age >= (SNAPSHOT_MAX_AGE_SECONDS if _state_from_disk else STATE_MAX_AGE_SECONDS):
+        # Absolute expiry only when there was never a usable in-memory snapshot.
+        if cache and not _state_from_disk and age >= STATE_MAX_AGE_SECONDS and _state_rebuild_failures >= STATE_REBUILD_FAIL_LIMIT:
+            data = _loading_state()
+        elif cache and _state_from_disk and age >= SNAPSHOT_MAX_AGE_SECONDS:
             data = _loading_state()
         data["state_age_seconds"] = round(age, 3)
         data["stale"] = bool(_state_from_disk or age > 30)
         if _state_from_disk:
-            data["loading"] = True
+            # Disk snapshot is a prior successful build: keep its overall, lock actions, mark stale.
+            # Forcing level=loading here is what made /api/state flicker after a plugin timeout.
+            data["loading"] = False
+            data["plugin_loading"] = False
             for table in data.get("agent_tables", []):
                 table["stale"] = True
             for row in data.get("agents", []) + [r for t in data.get("agent_tables", []) for r in t.get("rows", [])]:
                 row.pop("row_actions", None)
                 row["actions_locked"] = True
                 row["actions"] = False
-            data["overall"] = {"level": "loading", "summary_cs": "Načítám…"}
-        elif cache and age > 30 and not data.get("loading"):
-            # Rebuilds keep failing: do not leave a green ring on a stale snapshot.
+            ov = data.get("overall") if isinstance(data.get("overall"), dict) else {}
+            if ov.get("level") == "loading" or not ov.get("level"):
+                data["overall"] = {"level": "ok", "text_cs": "Obnovuji stav…",
+                                   "summary_cs": "Obnovuji stav z uloženého snímku.", "count": 0, "total": 0}
+        elif (cache and age > 30 and not data.get("loading")
+              and _state_rebuild_failures >= STATE_REBUILD_FAIL_LIMIT):
+            # Only after N consecutive rebuild failures — not merely because a plugin is slow.
             data["overall"] = {
                 "level": "warning",
                 "text_cs": "Stav se nepodařilo obnovit",
@@ -2534,12 +2621,13 @@ def _cached_state(clock=time.monotonic) -> bytes:
 
 def invalidate_state_cache() -> None:
     """Discard pre-action state, including any build already in flight; never reload it from disk."""
-    global _state_cache, _state_generation, _state_disk_checked, _state_from_disk
+    global _state_cache, _state_generation, _state_disk_checked, _state_from_disk, _state_rebuild_failures
     with _state_lock:
         _state_cache = None
         _state_generation += 1
         _state_disk_checked = True
         _state_from_disk = False
+        _state_rebuild_failures = 0
 
 
 def _peek_cached_state(clock=time.monotonic) -> tuple[dict, float]:
@@ -2828,8 +2916,20 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     except Exception:
         mutes = {}
 
+    seen_keys: set[tuple] = set()
+
     def add(sev, text, href=None, action=None, **extra):
         item = {"severity": sev, "text_cs": text, "href": href, "action": action, **extra}
+        # Dedup by kind + source/window (or full text): each problem appears once in „K řešení“.
+        src = str(extra.get("source") or "")
+        label = str(extra.get("label") or "")
+        kind = str(extra.get("kind") or "")
+        if not src and ": " in text:
+            src = text.split(": ", 1)[0]
+        key = (kind or sev, src, label or text)
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
         item["mute_key"] = attention_mute_key(item)
         if item["mute_key"] in mutes:
             return
@@ -2900,7 +3000,9 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                            "label": act.get("label") or "Uplatnit reset", "icon": act.get("icon") or "reset",
                            "confirm": act.get("confirm") or ""} if act else None)
                 add("warning", text, "#" + r["anchor"] if r.get("anchor") else "#plugin-tables", action,
-                    reset_at=min(resets) if resets else None, kind="exhausted")
+                    reset_at=min(resets) if resets else None, kind="exhausted",
+                    source=str(r.get("name") or r.get("id") or ""),
+                    label=",".join(dict.fromkeys(str(b.get("label") or "") for b in exh)))
             for r in t.get("rows") or []:
                 # A scoped sub-limit (Fable inside the Claude week) only matters at its own cap.
                 for c in (r.get("cells") or {}).values():
@@ -2910,7 +3012,8 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
                                 and not _bar_exhausted(b)):
                             add("warning", f"{r.get('name') or r.get('id')}: {cz_label(b.get('label'))} dosáhl stropu "
                                 f"{_cz_pct(cap)}", "#" + r["anchor"] if r.get("anchor") else "#plugin-tables",
-                                kind="cap")
+                                kind="cap", source=str(r.get("name") or r.get("id") or ""),
+                                label=str(b.get("label") or ""))
         _forecast_attention(data, now, add)
         for p in data.get("plugin_errors") or []:
             add("warning", f"Plugin {p.get('name')}: {str(p.get('detail') or 'chyba')[:140]}", "#plugin-errors")
@@ -2971,8 +3074,10 @@ def compute_attention(data: dict, now: float | None = None) -> tuple[list, dict]
     overall: dict = {"level": "critical" if crit else "warning" if warn else "ok", "text_cs": heading}
     overall.update(count=count, total=len(out), critical=crit, warning=warn, info=info, count_cs=count_cs,
                    summary_cs=_summary_sentence(out, crit, warn, info))
-    # Quota/plugin data not there yet: never claim "all OK" before the numbers that may say otherwise.
-    if (data.get("loading") or data.get("plugin_loading")) and not crit:
+    # First load only: no agents/services/tables yet. After the first successful publish (retained
+    # stale tables count), a slow/timeouting plugin is a warning — never global loading.
+    has_content = bool(data.get("agents") or data.get("services") or data.get("agent_tables"))
+    if (data.get("loading") or data.get("plugin_loading")) and not crit and not has_content:
         overall.update(level="loading", text_cs="Načítám…",
                        summary_cs="Načítám kvóty a stav pluginů – výsledek se ještě může změnit.")
     return out, overall
@@ -3023,10 +3128,16 @@ def _forecast_attention(data: dict, now: float, add) -> None:
             if isinstance(b, dict) and b.get("cap") is not None}
     anchors = {str(r.get("name") or "").strip(): r.get("anchor")
                for t in data.get("agent_tables") or [] for r in t.get("rows") or []}
+    exhausted = {(str(r.get("name") or "").strip(), str(b.get("label") or ""))
+                 for t in data.get("agent_tables") or [] for r in t.get("rows") or []
+                 for c in (r.get("cells") or {}).values() for b in (c or {}).get("bars") or []
+                 if isinstance(b, dict) and _bar_exhausted(b)}
     for f in data.get("forecasts") or []:
         if not isinstance(f, dict) or not f.get("will_exhaust_before_reset") or f.get("exhausted"):
             continue
         if (f.get("source"), f.get("label")) in subs:
+            continue
+        if (str(f.get("source") or "").strip(), str(f.get("label") or "")) in exhausted:
             continue
         ex, rs = f.get("exhaust_at"), f.get("reset_at")
         if type(ex) not in (int, float) or ex <= now:
@@ -3039,7 +3150,8 @@ def _forecast_attention(data: dict, now: float, add) -> None:
             text += f", obnova {_short_when(rs, now)}"
         anchor = anchors.get(str(f.get("source") or "").strip())
         add("warning", text, "#" + anchor if anchor else "#kvoty", kind="forecast",
-            exhaust_at=int(ex), reset_at=int(rs) if type(rs) in (int, float) else None)
+            exhaust_at=int(ex), reset_at=int(rs) if type(rs) in (int, float) else None,
+            source=str(f.get("source") or ""), label=str(f.get("label") or ""))
 
 
 # ---- "pracuje na #N": which queue item each agent is working on (deterministic, never guessed) ----
