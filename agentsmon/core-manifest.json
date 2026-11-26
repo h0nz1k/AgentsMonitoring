@@ -1,5 +1,5 @@
 {
-  "content_id": "68485acf123e40d817f8ac532842d76e4bf9ad5bcff085c7d7441014110895ae",
+  "content_id": "6e260dff479ccff9e4f0f34ff6cde38aacc1d4a6440c293e974e352503b12ec0",
   "files": {
     "__init__.py": "39e4ac1681bd607554cdda2c2c48ee781bf9fedf9da5cbf2c2fec2ae3c0d47cd",
     "__main__.py": "5141a43a820decea25d52515be4f2567b992176a81008b1b6532cedbbe574808",
@@ -8,7 +8,7 @@
     "config.py": "b8f4171eff9856fb4b541824a37c63cb598b832e08727df227cae79116ddca2e",
     "dashboard.py": "9f4e9f57ad9c8c2a0e17a7280714560e2fac7514c5f30106e079e58bc2a196cf",
     "db.py": "6c7290ac1cccd0bba62dec8e3e5eb6f37585464708c09f4f7c39c21a3fff9e27",
-    "detect.py": "a770d404624c88098399d45cd36cfe71dd800f89ba91eec27f718cf31424a7c6",
+    "detect.py": "9a970a15246edcf40f086be7e0a511b09d01af32b056f303247e313610fd3d27",
     "dialogs.py": "690cf9a5fb439809329a8054d74de32cca192b67d6e931926762f345812b2b66",
     "doctor.py": "b91ff6caabe4fe9a967e46ff0eed1ad0162b99c94d402bd5dcefa82745bb2818",
     "gateway_restart.py": "bbe80c475b2286b9aca7f013b407539fee7059d4bb0ae26a26ec4a9cc1497752",
@@ -39,6 +39,6 @@
     "wizard.py": "558b0f1a3699e87d7cafd48abd8ca3eeeb198cb4a7d9ccb0ae054d84dc1d86fe",
     "workqueue.py": "30c3b8fb7f3b93f31e337c0c56d120f7b38153b9a3ca73e307cffd5378cabb33"
   },
-  "release": "v0.3.14-ux-simplify-102",
+  "release": "v0.3.14-hermes-live-model-route",
   "version": "0.3.14"
 }
